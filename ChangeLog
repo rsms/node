@@ -1,4 +1,41 @@
-2009.12.06, Version 0.1.21
+2009.12.22, Version 0.1.23
+
+  * Bugfix: require("../blah") issues (isaacs)
+
+  * Bugfix: posix.cat (Jonas Pfenniger)
+
+  * Do not pause request for multipart parsing (Felix Geisendörfer)
+
+
+2009.12.19, Version 0.1.22, a2d809fe902f6c4102dba8f2e3e9551aad137c0f
+
+  * Bugfix: child modules get wrong id with "index.js" (isaacs)
+
+  * Bugfix: require("../foo") cycles (isaacs)
+
+  * Bugfix: require() should throw error if module does.
+
+  * New URI parser stolen from Narwhal (isaacs)
+
+  * Bugfix: correctly check kqueue and epoll. (Rasmus Andersson)
+
+  * Upgrade WAF to 1.5.10 
+
+  * Bugfix: posix.statSync() was crashing
+
+  * Statically define string symbols for performance improvement
+
+  * Bugfix: ARGV[0] weirdness
+
+  * Added superCtor to ctor.super_ instead superCtor.prototype.
+    (Johan Dahlberg)
+
+  * http-parser supports webdav methods
+
+  * API: http.Client.prototype.request() (Christopher Lenz)
+
+
+2009.12.06, Version 0.1.21, c6affb64f96a403a14d20035e7fbd6d0ce089db5
 
   * Feature: Add HTTP client TLS support (Rhys Jones)
 

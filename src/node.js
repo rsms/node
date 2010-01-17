@@ -1,6 +1,6 @@
 (function () { // annonymous namespace
 
-// deprecation errors
+/** deprecation errors ************************************************/
 
 GLOBAL.__module = function () {
   throw new Error("'__module' has been renamed to 'module'");
@@ -68,6 +68,51 @@ node.dns.createConnection = function () {
 
 node.inherits = function () {
   throw new Error("node.inherits() has moved. Use require('sys') to access it.");
+};
+
+/**********************************************************************/
+
+// Module 
+
+function Module (id, parent) {
+  this.id = id;
+  this.exports = {};
+  this.parent = parent;
+
+  this.filename = null;
+  this.loaded = false;
+  this.loadPromise = null;
+  this.exited = false;
+  this.children = [];
+};
+
+var moduleCache = {};
+
+function createModule (id, parent) {
+  if (id in moduleCache) {
+    debug("found " + JSON.stringify(id) + " in cache");
+    return moduleCache[id];
+  }
+  debug("didn't found " + JSON.stringify(id) + " in cache. creating new module");
+  var m = new Module(id, parent);
+  moduleCache[id] = m;
+  return m;
+};
+
+function createInternalModule (id, constructor) {
+  var m = createModule(id);
+  constructor(m.exports);
+  m.loaded = true;
+  return m;
+};
+
+
+process.inherits = function (ctor, superCtor) {
+  var tempCtor = function(){};
+  tempCtor.prototype = superCtor.prototype;
+  ctor.super_ = superCtor;
+  ctor.prototype = new tempCtor();
+  ctor.prototype.constructor = ctor;
 };
 
 
@@ -147,194 +192,189 @@ process.mixin = function() {
   return target;
 };
 
-
 // Event
 
-// process.EventEmitter is defined in src/events.cc
-// process.EventEmitter.prototype.emit() is also defined there.
-process.EventEmitter.prototype.addListener = function (type, listener) {
-  if (listener instanceof Function) {
+var eventsModule = createInternalModule('events', function (exports) {
+  exports.EventEmitter = process.EventEmitter;
+
+  // process.EventEmitter is defined in src/events.cc
+  // process.EventEmitter.prototype.emit() is also defined there.
+  process.EventEmitter.prototype.addListener = function (type, listener) {
+    if (listener instanceof Function) {
+      if (!this._events) this._events = {};
+      if (!this._events.hasOwnProperty(type)) this._events[type] = [];
+      // To avoid recursion in the case that type == "newListeners"! Before
+      // adding it to the listeners, first emit "newListeners".
+      this.emit("newListener", type, listener);
+      this._events[type].push(listener);
+    }
+    return this;
+  };
+
+  process.EventEmitter.prototype.removeListener = function (type, listener) {
+    if (listener instanceof Function) {
+      // does not use listeners(), so no side effect of creating _events[type]
+      if (!this._events || !this._events.hasOwnProperty(type)) return;
+      var list = this._events[type];
+      if (list.indexOf(listener) < 0) return;
+      list.splice(list.indexOf(listener), 1);
+    }
+    return this;
+  };
+
+  process.EventEmitter.prototype.listeners = function (type) {
     if (!this._events) this._events = {};
     if (!this._events.hasOwnProperty(type)) this._events[type] = [];
-    // To avoid recursion in the case that type == "newListeners"! Before
-    // adding it to the listeners, first emit "newListeners".
-    this.emit("newListener", type, listener);
-    this._events[type].push(listener);
-  }
-  return this;
-};
+    return this._events[type];
+  };
 
-process.EventEmitter.prototype.removeListener = function (type, listener) {
-  if (listener instanceof Function) {
-    // does not use listeners(), so no side effect of creating _events[type]
-    if (!this._events || !this._events.hasOwnProperty(type)) return;
-    var list = this._events[type];
-    if (list.indexOf(listener) < 0) return;
-    list.splice(list.indexOf(listener), 1);
-  }
-  return this;
-};
+  exports.Promise = function () {
+    exports.EventEmitter.call();
+    this._blocking = false;
+    this._hasFired = false;
+  };
+  process.inherits(exports.Promise, exports.EventEmitter);
 
-process.EventEmitter.prototype.listeners = function (type) {
-  if (!this._events) this._events = {};
-  if (!this._events.hasOwnProperty(type)) this._events[type] = [];
-  return this._events[type];
-};
+  process.Promise = exports.Promise;
 
-process.inherits = function (ctor, superCtor) {
-  var tempCtor = function(){};
-  tempCtor.prototype = superCtor.prototype;
-  ctor.super_ = superCtor;
-  ctor.prototype = new tempCtor();
-  ctor.prototype.constructor = ctor;
-};
+  exports.Promise.prototype.timeout = function(timeout) {
+    if (timeout === undefined) {
+      return this._timeoutDuration;
+    }
 
-
-// Promise
-
-process.Promise = function () {
-  process.EventEmitter.call();
-  this._blocking = false;
-  this._hasFired = false;
-};
-process.inherits(process.Promise, process.EventEmitter);
-
-process.Promise.prototype.timeout = function(timeout) {
-  if (timeout === undefined) {
-    return this._timeoutDuration;
-  }
-
-  this._timeoutDuration = timeout;
-  if (this._timer) {
-    clearTimeout(this._timer);
-    this._timer = null;
-  }
-
-  var promiseComplete = false;
-  var onComplete = function() {
-    promiseComplete = true;
+    this._timeoutDuration = timeout;
     if (this._timer) {
       clearTimeout(this._timer);
       this._timer = null;
     }
+
+    var promiseComplete = false;
+    var onComplete = function() {
+      promiseComplete = true;
+      if (this._timer) {
+        clearTimeout(this._timer);
+        this._timer = null;
+      }
+    };
+
+    this
+      .addCallback(onComplete)
+      .addCancelback(onComplete)
+      .addErrback(onComplete);
+
+    var self = this;
+    this._timer = setTimeout(function() {
+      self._timer = null;
+      if (promiseComplete) {
+        return;
+      }
+
+      self.emitError(new Error('timeout'));
+    }, this._timeoutDuration);
+
+    return this;
   };
 
-  this
-    .addCallback(onComplete)
-    .addCancelback(onComplete)
-    .addErrback(onComplete);
+  exports.Promise.prototype.cancel = function() {
+    if(this._cancelled) return;
+    this._cancelled = true;
 
-  var self = this;
-  this._timer = setTimeout(function() {
-    self._timer = null;
-    if (promiseComplete) {
-      return;
+    this._events['success'] = [];
+    this._events['error'] = [];
+
+    this.emitCancel();
+  };
+
+  exports.Promise.prototype.emitCancel = function() {
+    Array.prototype.unshift.call(arguments, 'cancel')
+    this.emit.apply(this, arguments);
+  };
+
+  exports.Promise.prototype.emitSuccess = function() {
+    if (this.hasFired) return;
+    this.hasFired = true;
+    Array.prototype.unshift.call(arguments, 'success')
+    this.emit.apply(this, arguments);
+  };
+
+  exports.Promise.prototype.emitError = function() {
+    if (this.hasFired) return;
+    this.hasFired = true;
+    Array.prototype.unshift.call(arguments, 'error')
+    this.emit.apply(this, arguments);
+  };
+
+  exports.Promise.prototype.addCallback = function (listener) {
+    this.addListener("success", listener);
+    return this;
+  };
+
+  exports.Promise.prototype.addErrback = function (listener) {
+    this.addListener("error", listener);
+    return this;
+  };
+
+  exports.Promise.prototype.addCancelback = function (listener) {
+    this.addListener("cancel", listener);
+    return this;
+  };
+
+  /* Poor Man's coroutines */
+  var coroutineStack = [];
+
+  exports.Promise.prototype._destack = function () {
+    this._blocking = false;
+
+    while (coroutineStack.length > 0 &&
+           !coroutineStack[coroutineStack.length-1]._blocking)
+    {
+      coroutineStack.pop();
+      process.unloop("one");
     }
+  };
 
-    self.emitError(new Error('timeout'));
-  }, this._timeoutDuration);
+  exports.Promise.prototype.wait = function () {
+    var self = this;
+    var ret;
+    var hadError = false;
 
-  return this;
-};
+    self.addCallback(function () {
+      if (arguments.length == 1) {
+        ret = arguments[0];
+      } else if (arguments.length > 1) {
+        ret = Array.prototype.slice.call(arguments);
+      }
+      self._destack();
+    });
 
-process.Promise.prototype.cancel = function() {
-  if(this._cancelled) return;
-  this._cancelled = true;
+    self.addErrback(function (arg) {
+      hadError = true;
+      ret = arg;
+      self._destack();
+    });
 
-  this._events['success'] = [];
-  this._events['error'] = [];
-
-  this.emitCancel();
-};
-
-process.Promise.prototype.emitCancel = function() {
-  Array.prototype.unshift.call(arguments, 'cancel')
-  this.emit.apply(this, arguments);
-};
-
-process.Promise.prototype.emitSuccess = function() {
-  if (this.hasFired) return;
-  this.hasFired = true;
-  Array.prototype.unshift.call(arguments, 'success')
-  this.emit.apply(this, arguments);
-};
-
-process.Promise.prototype.emitError = function() {
-  if (this.hasFired) return;
-  this.hasFired = true;
-  Array.prototype.unshift.call(arguments, 'error')
-  this.emit.apply(this, arguments);
-};
-
-process.Promise.prototype.addCallback = function (listener) {
-  this.addListener("success", listener);
-  return this;
-};
-
-process.Promise.prototype.addErrback = function (listener) {
-  this.addListener("error", listener);
-  return this;
-};
-
-process.Promise.prototype.addCancelback = function (listener) {
-  this.addListener("cancel", listener);
-  return this;
-};
-
-/* Poor Man's coroutines */
-var coroutineStack = [];
-
-process.Promise.prototype._destack = function () {
-  this._blocking = false;
-
-  while (coroutineStack.length > 0 &&
-         !coroutineStack[coroutineStack.length-1]._blocking)
-  {
-    coroutineStack.pop();
-    process.unloop("one");
-  }
-};
-
-process.Promise.prototype.wait = function () {
-  var self = this;
-  var ret;
-  var hadError = false;
-
-  self.addCallback(function () {
-    if (arguments.length == 1) {
-      ret = arguments[0];
-    } else if (arguments.length > 1) {
-      ret = Array.prototype.slice.call(arguments);
+    coroutineStack.push(self);
+    if (coroutineStack.length > 10) {
+      process.stdio.writeError("WARNING: promise.wait() is being called too often.\n");
     }
-    self._destack();
-  });
+    self._blocking = true;
 
-  self.addErrback(function (arg) {
-    hadError = true;
-    ret = arg;
-    self._destack();
-  });
+    process.loop();
 
-  coroutineStack.push(self);
-  if (coroutineStack.length > 10) {
-    process.stdio.writeError("WARNING: promise.wait() is being called too often.\n");
-  }
-  self._blocking = true;
+    process.assert(self._blocking == false);
 
-  process.loop();
-
-  process.assert(self._blocking == false);
-
-  if (hadError) {
-    if (ret) {
-      throw ret;
-    } else {
-      throw new Error("Promise completed with error (No arguments given.)");
+    if (hadError) {
+      if (ret) {
+        throw ret;
+      } else {
+        throw new Error("Promise completed with error (No arguments given.)");
+      }
     }
-  }
-  return ret;
-};
+    return ret;
+  };
+});
 
+var events = eventsModule.exports;
 
 
 // Signal Handlers
@@ -443,7 +483,9 @@ GLOBAL.setInterval = function (callback, repeat) {
 };
 
 GLOBAL.clearTimeout = function (timer) {
-  timer.stop();
+  if (timer instanceof process.Timer) {
+    timer.stop();
+  }
 };
 
 GLOBAL.clearInterval = GLOBAL.clearTimeout;
@@ -463,38 +505,6 @@ function debug (x) {
 }
 
 
-// private constructor
-function Module (id, parent) {
-  this.id = id;
-  this.exports = {};
-  this.parent = parent;
-
-  this.filename = null;
-  this.loaded = false;
-  this.loadPromise = null;
-  this.exited = false;
-  this.children = [];
-};
-
-var moduleCache = {};
-
-function createModule (id, parent) {
-  if (id in moduleCache) {
-    debug("found " + JSON.stringify(id) + " in cache");
-    return moduleCache[id];
-  }
-  debug("didn't found " + JSON.stringify(id) + " in cache. creating new module");
-  var m = new Module(id, parent);
-  moduleCache[id] = m;
-  return m;
-};
-
-function createInternalModule (id, constructor) {
-  var m = createModule(id);
-  constructor(m.exports);
-  m.loaded = true;
-  return m;
-};
 
 var posixModule = createInternalModule("posix", function (exports) {
   exports.Stats = process.Stats;
@@ -513,7 +523,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   // list to make the arguments clear.
 
   exports.close = function (fd) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.close(fd, callback(promise));
     return promise;
   };
@@ -523,7 +533,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.open = function (path, flags, mode) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.open(path, flags, mode, callback(promise));
     return promise;
   };
@@ -533,7 +543,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.read = function (fd, length, position, encoding) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     encoding = encoding || "binary";
     process.fs.read(fd, length, position, encoding, callback(promise));
     return promise;
@@ -545,7 +555,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.write = function (fd, data, position, encoding) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     encoding = encoding || "binary";
     process.fs.write(fd, data, position, encoding, callback(promise));
     return promise;
@@ -557,7 +567,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.rename = function (oldPath, newPath) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.rename(oldPath, newPath, callback(promise));
     return promise;
   };
@@ -567,7 +577,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.rmdir = function (path) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.rmdir(path, callback(promise));
     return promise;
   };
@@ -577,7 +587,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.mkdir = function (path, mode) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.mkdir(path, mode, callback(promise));
     return promise;
   };
@@ -587,7 +597,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.sendfile = function (outFd, inFd, inOffset, length) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.sendfile(outFd, inFd, inOffset, length, callback(promise));
     return promise;
   };
@@ -597,7 +607,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.readdir = function (path) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.readdir(path, callback(promise));
     return promise;
   };
@@ -607,7 +617,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.stat = function (path) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.stat(path, callback(promise));
     return promise;
   };
@@ -617,7 +627,7 @@ var posixModule = createInternalModule("posix", function (exports) {
   };
 
   exports.unlink = function (path) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
     process.fs.unlink(path, callback(promise));
     return promise;
   };
@@ -628,7 +638,7 @@ var posixModule = createInternalModule("posix", function (exports) {
 
 
   exports.cat = function (path, encoding) {
-    var promise = new process.Promise();
+    var promise = new events.Promise();
 
     encoding = encoding || "utf8"; // default to utf8
 
@@ -670,40 +680,57 @@ var pathModule = createInternalModule("path", function (exports) {
     return exports.normalize(Array.prototype.join.call(arguments, "/"));
   };
 
-  exports.normalizeArray = function (parts) {
-    var directories = [];
-    for (var i = 0; i < parts.length; i++) {
+  exports.normalizeArray = function (parts, keepBlanks) {
+    var directories = [], prev;
+    for (var i = 0, l = parts.length - 1; i <= l; i++) {
       var directory = parts[i];
-      if (directory === "." || (directory === "" && directories.length)) {
-        continue;
-      }
+
+      // if it's blank, but it's not the first thing, and not the last thing, skip it.
+      if (directory === "" && i !== 0 && i !== l && !keepBlanks) continue;
+
+      // if it's a dot, and there was some previous dir already, then skip it.
+      if (directory === "." && prev !== undefined) continue;
+
       if (
         directory === ".."
         && directories.length
-        && directories[directories.length - 1] != '..'
+        && prev !== ".."
+        && prev !== undefined
+        && (prev !== "" || keepBlanks)
       ) {
         directories.pop();
+        prev = directories.slice(-1)[0]
       } else {
+        if (prev === ".") directories.pop();
         directories.push(directory);
+        prev = directory;
       }
     }
     return directories;
   };
 
-  exports.normalize = function (path) {
-    return exports.normalizeArray(path.split("/")).join("/");
+  exports.normalize = function (path, keepBlanks) {
+    return exports.normalizeArray(path.split("/"), keepBlanks).join("/");
   };
 
   exports.dirname = function (path) {
-    if (path.charAt(0) !== "/") path = "./" + path;
-    var parts = path.split("/");
-    return parts.slice(0, parts.length-1).join("/");
+    return path.substr(0, path.lastIndexOf("/")) || ".";
   };
 
-  exports.filename = function (path) {
-    if (path.charAt(0) !== "/") path = "./" + path;
-    var parts = path.split("/");
-    return parts[parts.length-1];
+  exports.filename = function () {
+    throw new Error("path.filename is deprecated. Please use path.basename instead.");
+  };
+  exports.basename = function (path, ext) {
+    var f = path.substr(path.lastIndexOf("/") + 1);
+    if (ext && f.substr(-1 * ext.length) === ext) {
+      f = f.substr(0, f.length - ext.length);
+    }
+    return f;
+  };
+
+  exports.extname = function (path) {
+    var index = path.lastIndexOf('.');
+    return index < 0 ? '' : path.substring(index);
   };
 
   exports.exists = function (path, callback) {
@@ -780,7 +807,7 @@ function findModulePath (id, dirs, callback) {
 
 function loadModule (request, parent) {
   // This is the promise which is actually returned from require.async()
-  var loadPromise = new process.Promise();
+  var loadPromise = new events.Promise();
 
   // debug("loadModule REQUEST  " + (request) + " parent: " + JSON.stringify(parent));
 
@@ -788,7 +815,7 @@ function loadModule (request, parent) {
   if (request.charAt(0) == "." && (request.charAt(1) == "/" || request.charAt(1) == ".")) {
     // Relative request
     var parentIdPath = path.dirname(parent.id +
-      (path.filename(parent.filename).match(/^index\.(js|addon)$/) ? "/" : ""));
+      (path.basename(parent.filename).match(/^index\.(js|addon)$/) ? "/" : ""));
     id = path.join(parentIdPath, request);
     // debug("RELATIVE: requested:"+request+" set ID to: "+id+" from "+parent.id+"("+parentIdPath+")");
     paths = [path.dirname(parent.filename)];
@@ -854,7 +881,7 @@ function cat (id, loadPromise) {
   debug(id);
 
   if (id.match(/^http:\/\//)) {
-    promise = new process.Promise();
+    promise = new events.Promise();
     loadModule('http', process.mainModule)
       .addCallback(function(http) {
         http.cat(id)
@@ -880,7 +907,7 @@ Module.prototype.loadScript = function (filename, loadPromise) {
   var catPromise = cat(filename, loadPromise);
 
   catPromise.addErrback(function () {
-    loadPromise.emitError(new Error("Error reading " + filename));
+    loadPromise.emitError(new Error("Cannot read " + filename));
   });
 
   catPromise.addCallback(function (content) {
@@ -902,9 +929,9 @@ Module.prototype.loadScript = function (filename, loadPromise) {
     var wrapper = "var __wrap__ = function (exports, require, module, __filename) { "
                 + content
                 + "\n}; __wrap__;";
-    var compiledWrapper = process.compile(wrapper, filename);
 
     try {
+      var compiledWrapper = process.compile(wrapper, filename);
       compiledWrapper.apply(self.exports, [self.exports, require, self, filename]);
     } catch (e) {
       loadPromise.emitError(e);
@@ -954,7 +981,7 @@ if (process.ARGV[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.ARGV[1])) {
 
 // Load the main module--the command line argument.
 process.mainModule = createModule(".");
-var loadPromise = new process.Promise();
+var loadPromise = new events.Promise();
 process.mainModule.load(process.ARGV[1], loadPromise);
 
 loadPromise.addErrback(function(e) {

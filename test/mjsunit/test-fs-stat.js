@@ -4,20 +4,16 @@ var got_error = false;
 var success_count = 0;
 var stats;
 
-var promise = fs.stat(".");
-
-promise.addCallback(function (_stats) {
+fs.stat(".", function (err, _stats) {
+  if (err) return got_error = err;
   stats = _stats;
   p(stats);
   success_count++;
 });
 
-promise.addErrback(function () {
-  got_error = true;
-});
-
 puts("stating: " + __filename);
-fs.stat(__filename).addCallback(function (s) {
+fs.stat(__filename, function (err, s) {
+  if (err) return got_error = err;
   p(s);
   success_count++;
 
@@ -41,8 +37,6 @@ fs.stat(__filename).addCallback(function (s) {
 
   puts("isSymbolicLink: " + JSON.stringify( s.isSymbolicLink() ) );
   assert.equal(false, s.isSymbolicLink());
-}).addErrback(function () {
-  got_error = true;
 });
 
 

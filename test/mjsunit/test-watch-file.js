@@ -18,9 +18,9 @@ process.watchFile(f, function (curr, prev) {
 
 var fs = require("fs");
 
-var fd = fs.openSync(f, "w+");
-fs.writeSync(fd, 'xyz\n');
-fs.closeSync(fd);
+var fd = fs.open(f, "w+");
+fs.write(fd, 'xyz\n');
+fs.close(fd);
 
 process.addListener("exit", function () {
   assert.ok(changes > 0);

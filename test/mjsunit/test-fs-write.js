@@ -13,7 +13,7 @@ fs.open(fn, 'w', 0644, function(err, fd) {
       fs.readFile(fn, process.UTF8, function(err, contents) {
         if (err) throw err;
         found = contents;
-        fs.unlinkSync(fn);
+        fs.unlink(fn);
       });
     });
   });

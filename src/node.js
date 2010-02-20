@@ -458,26 +458,14 @@ var fsModule = createInternalModule("fs", function (exports) {
   
   function deprecated(name, useinstead) {
     return function() {
-      if (!name) {
-        name = arguments.callee.name;
-      }
+      if (!name)
+        name = arguments.callee.name || '<anonymous>';
       if (!useinstead && name.substr(name.length-4) === 'Sync')
         useinstead = name.substr(0, name.length-4);
       throw new Error(name+" is deprecated"+
         (useinstead ? ". Please use "+useinstead+" instead." : ""));
     }
   }
-
-  /*function callback (promise) {
-    return function (error) {
-      if (error) {
-        promise.emitError.apply(promise, arguments);
-      } else {
-        promise.emitSuccess.apply(promise,
-                                  Array.prototype.slice.call(arguments, 1));
-      }
-    };
-  }*/
   
   // Used by fs.open and friends
   function stringToFlags(flag) {
@@ -504,7 +492,7 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.close(fd, callback);
   };
 
-  exports.closeSync = exports.close;
+  exports.closeSync = deprecated('fs.closeSync');
 
   // open(path, [flags=O_RDONLY, [mode=0666]], [callback])
   exports.open = function (path, flags, mode, callback) {
@@ -521,7 +509,7 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.open(path, flags, mode, callback);
   };
 
-  exports.openSync = exports.open;
+  exports.openSync = deprecated('fs.openSync');
 
   // read(fd, length, [position, [encoding='binary']], [callback])
   exports.read = function (fd, length, position, encoding, callback) {
@@ -536,7 +524,7 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.read(fd, length, position, encoding||'binary', callback);
   };
 
-  exports.readSync = exports.read;
+  exports.readSync = deprecated('fs.readSync');
 
   // write(fd, data, [position, [encoding='binary']], [callback])
   exports.write = function (fd, data, position, encoding, callback) {
@@ -551,86 +539,65 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.write(fd, data, position, encoding||'binary', callback);
   };
 
-  exports.writeSync = exports.write;
+  exports.writeSync = deprecated('fs.writeSync');
 
   // rename(oldPath, newPath, [callback])
   exports.rename = function (oldPath, newPath, callback) {
     return process.fs.rename(oldPath, newPath, callback);
   };
 
-  exports.renameSync = function (oldPath, newPath) {
-    return process.fs.rename(oldPath, newPath);
+  exports.renameSync = deprecated('fs.renameSync');
+
+  // truncate(fd, len, [callback])
+  exports.truncate = function (fd, len, callback) {
+    return process.fs.truncate(fd, len, callback);
   };
 
-  exports.truncate = function (fd, len) {
-    var promise = new events.Promise();
-    process.fs.truncate(fd, len, callback(promise));
-    return promise;
+  exports.truncateSync = deprecated('fs.truncateSync');
+
+  exports.rmdir = function (path, callback) {
+    return process.fs.rmdir(path, callback);
   };
 
-  exports.truncateSync = function (fd, len) {
-    return process.fs.truncate(fd, len);
+  exports.rmdirSync = deprecated('fs.rmdirSync');
+
+  // truncate(fd, [mode=(0777^umask)], [callback])
+  exports.mkdir = function (path, mode, callback) {
+    if (typeof mode === 'function') {
+      callback = mode;
+      mode = undefined;
+    }
+    if (mode === undefined)
+      mode = 0777 ^ process.umask();
+    return process.fs.mkdir(path, mode, callback);
   };
 
-  exports.rmdir = function (path) {
-    var promise = new events.Promise();
-    process.fs.rmdir(path, callback(promise));
-    return promise;
+  exports.mkdirSync = deprecated('fs.mkdirSync');
+
+  // truncate(outFd, inFd, inOffset, length, [callback])
+  exports.sendfile = function (outFd, inFd, inOffset, length, callback) {
+    return process.fs.sendfile(outFd, inFd, inOffset, length, callback);
   };
 
-  exports.rmdirSync = function (path) {
-    return process.fs.rmdir(path);
+  exports.sendfileSync = deprecated('fs.sendfileSync');
+
+  exports.readdir = function (path, callback) {
+    return process.fs.readdir(path, callback);
   };
 
-  exports.mkdir = function (path, mode) {
-    var promise = new events.Promise();
-    process.fs.mkdir(path, mode, callback(promise));
-    return promise;
+  exports.readdirSync = deprecated('fs.readdirSync');
+
+  exports.stat = function (path, callback) {
+    return process.fs.stat(path, callback);
   };
 
-  exports.mkdirSync = function (path, mode) {
-    return process.fs.mkdir(path, mode);
+  exports.statSync = deprecated('fs.statSync');
+
+  exports.unlink = function (path, callback) {
+    return process.fs.unlink(path, callback);
   };
 
-  exports.sendfile = function (outFd, inFd, inOffset, length) {
-    var promise = new events.Promise();
-    process.fs.sendfile(outFd, inFd, inOffset, length, callback(promise));
-    return promise;
-  };
-
-  exports.sendfileSync = function (outFd, inFd, inOffset, length) {
-    return process.fs.sendfile(outFd, inFd, inOffset, length);
-  };
-
-  exports.readdir = function (path) {
-    var promise = new events.Promise();
-    process.fs.readdir(path, callback(promise));
-    return promise;
-  };
-
-  exports.readdirSync = function (path) {
-    return process.fs.readdir(path);
-  };
-
-  exports.stat = function (path) {
-    var promise = new events.Promise();
-    process.fs.stat(path, callback(promise));
-    return promise;
-  };
-
-  exports.statSync = function (path) {
-    return process.fs.stat(path);
-  };
-
-  exports.unlink = function (path) {
-    var promise = new events.Promise();
-    process.fs.unlink(path, callback(promise));
-    return promise;
-  };
-
-  exports.unlinkSync = function (path) {
-    return process.fs.unlink(path);
-  };
+  exports.unlinkSync = deprecated('fs.unlinkSync');
 
   // writeFile(path, data, [encoding='utf8'], [callback])
   exports.writeFile = function (path, data, encoding, callback) {
@@ -639,7 +606,7 @@ var fsModule = createInternalModule("fs", function (exports) {
       encoding = undefined;
     }
     if (!callback)
-      return fs.writeFileSync(path, data, encoding);
+      return fs._writeFileSync(path, data, encoding);
     return fs.open(path, "w", function (err, fd) {
       if (err) return callback(err);
       function doWrite (_data) {
@@ -660,23 +627,25 @@ var fsModule = createInternalModule("fs", function (exports) {
     });
   };
   
-  exports.writeFileSync = function (path, data, encoding) {
-    var fd = exports.openSync(path, "w");
+  exports.writeFileSync = deprecated('fs.writeFileSync');
+  exports._writeFileSync = function (path, data, encoding) {
+    var fd = exports.open(path, "w");
     var r = process.fs.write(fd, data, 0, encoding||'utf8');
     exports.close(fd);
     return r;
   };
   
   
-  exports.cat = function () {
-    throw new Error("fs.cat is deprecated. Please use fs.readFile instead.");
-  };
+  exports.cat = deprecated('fs.cat', 'fs.readFile');
+  exports.catSync = deprecated('fs.catSync', 'fs.readFile');
 
   exports.readFile = function (path, encoding, callback) {
     if (typeof encoding === 'function') {
       callback = encoding;
       encoding = undefined;
     }
+    if (!callback)
+      return exports._readFileSync(path, encoding);
     encoding = encoding || "utf8"; // default to utf8
     exports.open(path, "r", function (err, fd) {
       if (err)
@@ -703,36 +672,27 @@ var fsModule = createInternalModule("fs", function (exports) {
     });
   };
 
-  exports.catSync = function () {
-    throw new Error("fs.catSync is deprecated. Please use fs.readFileSync instead.");
-  };
-
-  exports.readFileSync = function (path, encoding) {
-    encoding = encoding || "utf8"; // default to utf8
-
+  exports.readFileSync = deprecated('fs.readFileSync');
+  exports._readFileSync = function (path, encoding) {
     var
-      fd = exports.openSync(path, "r"),
+      fd = exports.open(path, "r"),
       content = '',
       pos = 0,
       r;
 
-    while ((r = exports.readSync(fd, 16*1024, pos, encoding)) && r[0]) {
+    while ((r = exports.read(fd, 16*1024, pos, encoding)) && r[0]) {
       content += r[0];
       pos += r[1]
     }
 
     return content;
   };
-  
-  exports.chmod = function(path, mode){
-    var promise = new events.Promise();
-    process.fs.chmod(path, mode, callback(promise));
-    return promise;
+
+  exports.chmod = function(path, mode, callback){
+    return process.fs.chmod(path, mode, callback);
   };
   
-  exports.chmodSync = function(path, mode){
-    return process.fs.chmod(path, mode);
-  };
+  exports.chmodSync = deprecated('fs.chmodSync');
   
 });
 
@@ -812,7 +772,7 @@ var path = pathModule.exports;
 
 function existsSync (path) {
   try {
-    fs.statSync(path);
+    fs.stat(path);
     return true;
   } catch (e) {
     return false;
@@ -1085,7 +1045,7 @@ Module.prototype._loadContent = function (content, filename) {
 
 
 Module.prototype._loadScriptSync = function (filename) {
-  var content = fs.readFileSync(filename);
+  var content = fs.readFile(filename);
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
   var e = this._loadContent(content, filename);
@@ -1150,7 +1110,10 @@ if (process.argv[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.argv[1])) {
 
 // Load the main module--the command line argument.
 process.mainModule = new Module(".");
-process.mainModule.load(process.argv[1], Function.EMPTY);
+process.mainModule.load(process.argv[1], function(err){
+  if (err)
+    throw err;
+});
 
 // All our arguments are loaded. We've evaluated all of the scripts. We
 // might even have created TCP servers. Now we enter the main eventloop. If

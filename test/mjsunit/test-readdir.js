@@ -2,10 +2,12 @@ process.mixin(require("./common"));
 
 var got_error = false;
 
-var promise = fs.readdir(fixturesDir);
 puts("readdir " + fixturesDir);
-
-promise.addCallback(function (files) {
+var promise = fs.readdir(fixturesDir, function (err, files) {
+  if (err) {
+    puts("error");
+    return got_error = err;
+  }
   p(files);
   assert.deepEqual(['a.js'
                    , 'b'
@@ -20,11 +22,6 @@ promise.addCallback(function (files) {
                    , 'throws_error.js'
                    , 'x.txt'
                    ], files.sort());
-});
-
-promise.addErrback(function () {
-  puts("error");
-  got_error = true;
 });
 
 process.addListener("exit", function () {

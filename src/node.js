@@ -3,6 +3,7 @@
 process.global.process = process;
 process.global.global = process.global;
 global.GLOBAL = global;
+Function.EMPTY = function(){};
 
 /** deprecation errors ************************************************/
 
@@ -57,7 +58,7 @@ function Module (id, parent) {
 
   this.filename = null;
   this.loaded = false;
-  this.loadPromise = null;
+  this.loadCallback = null;
   this.exited = false;
   this.children = [];
 };
@@ -454,8 +455,20 @@ function debug (x) {
 
 var fsModule = createInternalModule("fs", function (exports) {
   exports.Stats = process.Stats;
+  
+  function deprecated(name, useinstead) {
+    return function() {
+      if (!name) {
+        name = arguments.callee.name;
+      }
+      if (!useinstead && name.substr(name.length-4) === 'Sync')
+        useinstead = name.substr(0, name.length-4);
+      throw new Error(name+" is deprecated"+
+        (useinstead ? ". Please use "+useinstead+" instead." : ""));
+    }
+  }
 
-  function callback (promise) {
+  /*function callback (promise) {
     return function (error) {
       if (error) {
         promise.emitError.apply(promise, arguments);
@@ -464,7 +477,7 @@ var fsModule = createInternalModule("fs", function (exports) {
                                   Array.prototype.slice.call(arguments, 1));
       }
     };
-  }
+  }*/
   
   // Used by fs.open and friends
   function stringToFlags(flag) {
@@ -486,56 +499,63 @@ var fsModule = createInternalModule("fs", function (exports) {
   // Yes, the follow could be easily DRYed up but I provide the explicit
   // list to make the arguments clear.
 
-  exports.close = function (fd) {
-    var promise = new events.Promise();
-    process.fs.close(fd, callback(promise));
-    return promise;
+  // close(fd, [callback])
+  exports.close = function (fd, callback) {
+    return process.fs.close(fd, callback);
   };
 
-  exports.closeSync = function (fd) {
-    return process.fs.close(fd);
+  exports.closeSync = exports.close;
+
+  // open(path, [flags=O_RDONLY, [mode=0666]], [callback])
+  exports.open = function (path, flags, mode, callback) {
+    if (typeof flags === 'function') {
+      callback = flags;
+      flags = undefined;
+    }
+    else if (typeof mode === 'function') {
+      callback = mode;
+      mode = undefined;
+    }
+    flags = (flags === undefined) ? process.O_RDONLY : stringToFlags(flags);
+    if (mode === undefined) mode = 0666;
+    return process.fs.open(path, flags, mode, callback);
   };
 
-  exports.open = function (path, flags, mode) {
-    if (mode === undefined) { mode = 0666; }
-    var promise = new events.Promise();
-    process.fs.open(path, stringToFlags(flags), mode, callback(promise));
-    return promise;
+  exports.openSync = exports.open;
+
+  // read(fd, length, [position, [encoding='binary']], [callback])
+  exports.read = function (fd, length, position, encoding, callback) {
+    if (typeof position === 'function') {
+      callback = position;
+      position = undefined;
+    }
+    else if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = undefined;
+    }
+    return process.fs.read(fd, length, position, encoding||'binary', callback);
   };
 
-  exports.openSync = function (path, flags, mode) {
-    if (mode === undefined) { mode = 0666; }
-    return process.fs.open(path, stringToFlags(flags), mode);
+  exports.readSync = exports.read;
+
+  // write(fd, data, [position, [encoding='binary']], [callback])
+  exports.write = function (fd, data, position, encoding, callback) {
+    if (typeof position === 'function') {
+      callback = position;
+      position = undefined;
+    }
+    else if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = undefined;
+    }
+    return process.fs.write(fd, data, position, encoding||'binary', callback);
   };
 
-  exports.read = function (fd, length, position, encoding) {
-    var promise = new events.Promise();
-    encoding = encoding || "binary";
-    process.fs.read(fd, length, position, encoding, callback(promise));
-    return promise;
-  };
+  exports.writeSync = exports.write;
 
-  exports.readSync = function (fd, length, position, encoding) {
-    encoding = encoding || "binary";
-    return process.fs.read(fd, length, position, encoding);
-  };
-
-  exports.write = function (fd, data, position, encoding) {
-    var promise = new events.Promise();
-    encoding = encoding || "binary";
-    process.fs.write(fd, data, position, encoding, callback(promise));
-    return promise;
-  };
-
-  exports.writeSync = function (fd, data, position, encoding) {
-    encoding = encoding || "binary";
-    return process.fs.write(fd, data, position, encoding);
-  };
-
-  exports.rename = function (oldPath, newPath) {
-    var promise = new events.Promise();
-    process.fs.rename(oldPath, newPath, callback(promise));
-    return promise;
+  // rename(oldPath, newPath, [callback])
+  exports.rename = function (oldPath, newPath, callback) {
+    return process.fs.rename(oldPath, newPath, callback);
   };
 
   exports.renameSync = function (oldPath, newPath) {
@@ -612,41 +632,39 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.unlink(path);
   };
 
-  exports.writeFile = function (path, data, encoding) {
-    var promise = new events.Promise();
-    encoding = encoding || "utf8"; // default to utf8
-
-    fs.open(path, "w")
-      .addCallback(function (fd) {
-        function doWrite (_data) {
-          fs.write(fd, _data, 0, encoding)
-            .addErrback(function () {
-              fs.close(fd);
-              promise.emitError();
-            })
-            .addCallback(function (written) {
-              if (written === _data.length) {
-                fs.close(fd);
-                promise.emitSuccess();
-              } else {
-                doWrite(_data.slice(written));
-              }
-            });
-        }
-        doWrite(data);
-      })
-      .addErrback(function () {
-        promise.emitError();
-      });
-
-    return promise;
-    
+  // writeFile(path, data, [encoding='utf8'], [callback])
+  exports.writeFile = function (path, data, encoding, callback) {
+    if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = undefined;
+    }
+    if (!callback)
+      return fs.writeFileSync(path, data, encoding);
+    return fs.open(path, "w", function (err, fd) {
+      if (err) return callback(err);
+      function doWrite (_data) {
+        fs.write(fd, _data, 0, encoding||"utf8", function (err, written) {
+          if (err) {
+            exports.close(fd, function(){ callback(err); });
+          }
+          else if (written === _data.length) {
+            // todo: return number of bytes written?
+            exports.close(fd, callback);
+          }
+          else {
+            doWrite(_data.slice(written));
+          }
+        });
+      }
+      doWrite(data);
+    });
   };
   
   exports.writeFileSync = function (path, data, encoding) {
-    encoding = encoding || "utf8"; // default to utf8
     var fd = exports.openSync(path, "w");
-    return process.fs.write(fd, data, 0, encoding);
+    var r = process.fs.write(fd, data, 0, encoding||'utf8');
+    exports.close(fd);
+    return r;
   };
   
   
@@ -654,38 +672,35 @@ var fsModule = createInternalModule("fs", function (exports) {
     throw new Error("fs.cat is deprecated. Please use fs.readFile instead.");
   };
 
-  exports.readFile = function (path, encoding) {
-    var promise = new events.Promise();
-
+  exports.readFile = function (path, encoding, callback) {
+    if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = undefined;
+    }
     encoding = encoding || "utf8"; // default to utf8
-
-    exports.open(path, "r").addCallback(function (fd) {
+    exports.open(path, "r", function (err, fd) {
+      if (err)
+        return callback(err);
       var content = "", pos = 0;
-
       function readChunk () {
-        exports.read(fd, 16*1024, pos, encoding).addCallback(function (chunk, bytes_read) {
+        exports.read(fd, 16*1024, pos, encoding, function (err, chunk, bytes_read) {
+          if (err)
+            return callback(err);
           if (chunk) {
             if (chunk.constructor === String) {
               content += chunk;
             } else {
               content = content.concat(chunk);
             }
-
             pos += bytes_read;
             readChunk();
           } else {
-            promise.emitSuccess(content);
-            exports.close(fd);
+            return exports.close(fd, function(err){ callback(err, content); });
           }
-        }).addErrback(function () {
-          promise.emitError.apply(promise, arguments);
         });
       }
       readChunk();
-    }).addErrback(function () {
-      promise.emitError.apply(promise, arguments);
     });
-    return promise;
   };
 
   exports.catSync = function () {
@@ -782,10 +797,14 @@ var pathModule = createInternalModule("path", function (exports) {
     return index < 0 ? '' : path.substring(index);
   };
 
+  // exists(path, [callback])
   exports.exists = function (path, callback) {
-    var p = fs.stat(path);
-    p.addCallback(function () { callback(true); });
-    p.addErrback(function () { callback(false); });
+    if (callback) {
+      fs.stat(path, function(err){ callback(err ? false : true); });
+    }
+    else {
+      return fs.stat(path) ? true : false;
+    }
   };
 });
 
@@ -812,7 +831,6 @@ if (process.env["HOME"]) {
 if (process.env["NODE_PATH"]) {
   process.paths = process.env["NODE_PATH"].split(":").concat(process.paths);
 }
-
 
 /* Sync unless callback given */
 function findModulePath (id, dirs, callback) {
@@ -908,15 +926,19 @@ function loadModuleSync (request, parent) {
   var id = resolvedModule[0];
   var paths = resolvedModule[1];
 
-  debug("loadModuleSync REQUEST  " + (request) + " parent: " + parent.id);
+  if (debugLevel > 0)
+    debug("loadModuleSync REQUEST  " + (request) + " parent: " + parent.id);
 
   var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
 
   if (cachedModule) {
-    debug("found  " + JSON.stringify(id) + " in cache");
+    if (debugLevel > 0)
+      debug("found  " + JSON.stringify(id) + " in cache");
     return cachedModule.exports;
   } else {
-    debug("looking for " + JSON.stringify(id) + " in " + JSON.stringify(paths));
+    if (debugLevel > 0)
+      debug("looking for " + JSON.stringify(id) + " in " + 
+            JSON.stringify(paths));
     var filename = findModulePath(request, paths);
     if (!filename) {
       throw new Error("Cannot find module '" + request + "'");
@@ -929,41 +951,45 @@ function loadModuleSync (request, parent) {
 }
 
 
-function loadModule (request, parent) {
+function loadModule (request, parent, callback) {
+  if (!callback)
+    return loadModuleSync(request, parent);
   var
-    // The promise returned from require.async()
-    loadPromise = new events.Promise(),
     resolvedModule = resolveModulePath(request, parent),
     id = resolvedModule[0],
     paths = resolvedModule[1];
 
-  debug("loadModule REQUEST  " + (request) + " parent: " + parent.id);
+  if (debugLevel > 0)
+    debug("loadModule REQUEST  " + (request) + " parent: " + parent.id);
 
   var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
   if (cachedModule) {
-    debug("found  " + JSON.stringify(id) + " in cache");
+    if (debugLevel > 0)
+      debug("found  " + JSON.stringify(id) + " in cache");
     process.nextTick(function() {
-      loadPromise.emitSuccess(cachedModule.exports);
+      callback(null, cachedModule.exports);
     });
-   } else {
-    debug("looking for " + JSON.stringify(id) + " in " + JSON.stringify(paths));
+  }
+  else {
+    if (debugLevel > 0)
+      debug("looking for " + JSON.stringify(id) + " in " + 
+            JSON.stringify(paths));
     // Not in cache
     findModulePath(request, paths, function (filename) {
       if (!filename) {
-        loadPromise.emitError(new Error("Cannot find module '" + request + "'"));
+        callback(new Error("Cannot find module '" + request + "'"));
       } else {
-        var module = new Module(id, parent);
-        module.load(filename, loadPromise);
+        (new Module(id, parent)).load(filename, callback);
       }
     });
   }
-
-  return loadPromise;
 };
 
 
 Module.prototype.loadSync = function (filename) {
-  debug("loadSync " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
+  if (debugLevel > 0)
+    debug("loadSync " + JSON.stringify(filename) + " for module " +
+          JSON.stringify(this.id));
 
   process.assert(!this.loaded);
   this.filename = filename;
@@ -976,19 +1002,21 @@ Module.prototype.loadSync = function (filename) {
 };
 
 
-Module.prototype.load = function (filename, loadPromise) {
-  debug("load " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
+Module.prototype.load = function (filename, callback) {
+  if (debugLevel > 0)
+    debug("load " + JSON.stringify(filename) + " for module " +
+          JSON.stringify(this.id));
 
   process.assert(!this.loaded);
-  process.assert(!this.loadPromise);
+  process.assert(!this.loadCallback);
 
-  this.loadPromise = loadPromise;
+  this.loadCallback = callback;
   this.filename = filename;
 
   if (filename.match(/\.node$/)) {
-    this._loadObject(filename, loadPromise);
+    this._loadObject(filename, callback);
   } else {
-    this._loadScript(filename, loadPromise);
+    this._loadScript(filename, callback);
   }
 };
 
@@ -999,41 +1027,30 @@ Module.prototype._loadObjectSync = function (filename) {
 };
 
 
-Module.prototype._loadObject = function (filename, loadPromise) {
+Module.prototype._loadObject = function (filename, callback) {
   var self = this;
   // XXX Not yet supporting loading from HTTP. would need to download the
   // file, store it to tmp then run dlopen on it.
   process.nextTick(function () {
     self.loaded = true;
     process.dlopen(filename, self.exports); // FIXME synchronus
-    loadPromise.emitSuccess(self.exports);
+    callback(null, self.exports);
   });
 };
 
 
-function cat (id, loadPromise) {
-  var promise;
-
+function cat (id, loadCallback, callback) {
   if (id.match(/^http:\/\//)) {
-    promise = new events.Promise();
-    loadModule('http', process.mainModule)
-      .addCallback(function(http) {
-        http.cat(id)
-          .addCallback(function(content) {
-            promise.emitSuccess(content);
-          })
-          .addErrback(function() {
-            promise.emitError.apply(null, arguments);
-          });
-      })
-      .addErrback(function() {
-        loadPromise.emitError(new Error("could not load core module \"http\""));
-      });
-  } else {
-    promise = fs.readFile(id);
+    loadModule('http', process.mainModule, function(err, http) {
+      if (err)
+        loadCallback(new Error("could not load core module \"http\""));
+      else
+        http.cat(id, callback);
+    })
   }
-
-  return promise;
+  else {
+    fs.readFile(id, callback);
+  }
 }
 
 
@@ -1071,7 +1088,6 @@ Module.prototype._loadScriptSync = function (filename) {
   var content = fs.readFileSync(filename);
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
-
   var e = this._loadContent(content, filename);
   if (e) {
     throw e;
@@ -1081,23 +1097,18 @@ Module.prototype._loadScriptSync = function (filename) {
 };
 
 
-Module.prototype._loadScript = function (filename, loadPromise) {
+Module.prototype._loadScript = function (filename, callback) {
   var self = this;
-  var catPromise = cat(filename, loadPromise);
-
-  catPromise.addErrback(function () {
-    loadPromise.emitError(new Error("Cannot read " + filename));
-  });
-
-  catPromise.addCallback(function (content) {
+  cat(filename, callback, function(err, content) {
+    if (err)
+      return callback(err);
     var e = self._loadContent(content, filename);
     if (e) {
-      loadPromise.emitError(e);
-      return;
+      return callback(e);
     }
     self._waitChildrenLoad(function () {
       self.loaded = true;
-      loadPromise.emitSuccess(self.exports);
+      return callback(null, self.exports);
     });
   });
 };
@@ -1111,10 +1122,10 @@ Module.prototype._waitChildrenLoad = function (callback) {
     if (child.loaded) {
       nloaded++;
     } else {
-      child.loadPromise.addCallback(function () {
+      child.loadCallback = function (err) {
         nloaded++;
         if (children.length == nloaded && callback) callback();
-      });
+      };
     }
   }
   if (children.length == nloaded && callback) callback();
@@ -1139,8 +1150,7 @@ if (process.argv[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.argv[1])) {
 
 // Load the main module--the command line argument.
 process.mainModule = new Module(".");
-var loadPromise = new events.Promise();
-process.mainModule.load(process.argv[1], loadPromise);
+process.mainModule.load(process.argv[1], Function.EMPTY);
 
 // All our arguments are loaded. We've evaluated all of the scripts. We
 // might even have created TCP servers. Now we enter the main eventloop. If

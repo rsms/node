@@ -13,8 +13,8 @@
 #include <limits.h>
 
 /* used for readlink, AIX doesn't provide it */
-#ifndef NAME_MAX
-#define NAME_MAX 4096
+#ifndef PATH_MAX
+#define PATH_MAX 4096
 #endif
 
 namespace node {
@@ -270,8 +270,8 @@ static Handle<Value> ReadLink(const Arguments& args) {
   if (args[1]->IsFunction()) {
     ASYNC_CALL(readlink, args[1], *path)
   } else {
-    char buf[NAME_MAX];
-    ssize_t bz = readlink(*path, buf, NAME_MAX);
+    char buf[PATH_MAX];
+    ssize_t bz = readlink(*path, buf, PATH_MAX);
     if (bz == -1) return ThrowException(errno_exception(errno));
     return scope.Close(String::New(buf));
   }

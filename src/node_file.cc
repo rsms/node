@@ -61,6 +61,8 @@ static int After(eio_req *req) {
       case EIO_RMDIR:
       case EIO_MKDIR:
       case EIO_FTRUNCATE:
+      case EIO_LINK:
+      case EIO_SYMLINK:
       case EIO_CHMOD:
         argc = 0;
         break;

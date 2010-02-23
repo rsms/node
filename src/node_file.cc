@@ -86,7 +86,7 @@ static int After(eio_req *req) {
         argv[1] = BuildStatsObject(s);
         break;
       }
-      
+
       case EIO_READLINK:
       {
         argc = 2;

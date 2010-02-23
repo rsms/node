@@ -607,7 +607,7 @@ Synchronous stat(2) or lstat(2). Returns an instance of +fs.Stats+.
 
 
 +fs.link(srcpath, dstpath, callback)+ ::
-Asynchronous link(2). 
+Asynchronous link(2).
 No arguments other than a possible exception are given to the completion callback.
 
 +fs.linkSync(dstpath, srcpath)+ ::
@@ -615,7 +615,7 @@ Synchronous link(2).
 
 
 +fs.symlink(linkdata, path, callback)+ ::
-Asynchronous symlink(2). 
+Asynchronous symlink(2).
 No arguments other than a possible exception are given to the completion callback.
 
 +fs.symlinkSync(linkdata, path)+ ::
@@ -623,8 +623,8 @@ Synchronous symlink(2).
 
 
 +fs.readlink(path, callback)+ ::
-Asynchronous readlink(2). 
-The callback gets two arguments +(err, resolvedPath)+. 
+Asynchronous readlink(2).
+The callback gets two arguments +(err, resolvedPath)+.
 
 +fs.readlinkSync(path)+ ::
 Synchronous readlink(2). Returns the resolved path.

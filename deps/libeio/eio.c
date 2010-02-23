@@ -134,8 +134,8 @@
 #define IDLE_TIMEOUT 10
 
 /* used for struct dirent, AIX doesn't provide it */
-#ifndef NAME_MAX
-# define NAME_MAX 4096
+#ifndef PATH_MAX
+# define PATH_MAX 4096
 #endif
 
 /* buffer size for various temporary buffers */
@@ -1595,8 +1595,8 @@ static void eio_execute (etp_worker *self, eio_req *req)
       case EIO_SYMLINK:   req->result = symlink   (req->ptr1, req->ptr2); break;
       case EIO_MKNOD:     req->result = mknod     (req->ptr1, (mode_t)req->int2, (dev_t)req->int3); break;
 
-      case EIO_READLINK:  ALLOC (NAME_MAX);
-                          req->result = readlink  (req->ptr1, req->ptr2, NAME_MAX); break;
+      case EIO_READLINK:  ALLOC (PATH_MAX);
+                          req->result = readlink  (req->ptr1, req->ptr2, PATH_MAX); break;
 
       case EIO_SYNC:      req->result = 0; sync (); break;
       case EIO_FSYNC:     req->result = fsync     (req->int1); break;

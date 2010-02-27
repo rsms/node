@@ -670,6 +670,16 @@ No arguments other than a possible exception are given to the completion callbac
 Synchronous mkdir(2).
 
 
++fs.mkdirs(path, [mode=(0777^umask)], [callback])+ ::
+Asynchronous recursive mkdir(2).
+The callback gets two arguments +(err, directories)+ where +directories+ is an
+array of the names of the directories which was created.
+
++fs.mkdirsSync(path, [mode=(0777^umask)])+ ::
+Synchronous vesion of +fs.mkdirs+.
+Returns a list with the names of the directories which was created.
+
+
 +fs.readdir(path, callback)+ ::
 Asynchronous readdir(3).  Reads the contents of a directory.
 The callback gets two arguments +(err, files)+ where +files+ is an array of

@@ -25,3 +25,13 @@ assert.equal(path.normalize("a//b//./c"), "a/b/c");
 assert.equal(path.normalize("a//b//.", true), "a//b/");
 assert.equal(path.normalize("a//b//."), "a/b");
 
+assert.equal(path.relativize('/a/b/c/','/a/b/x/y/z'), '../x/y/z');
+assert.equal(path.relativize('/a/b', '/x/y/z'), '/x/y/z');
+assert.equal(path.relativize('/a/b', 'x/y/z'), '/a/b/x/y/z');
+assert.equal(path.relativize('/a/b', 'x/../z'), '/a/b/z');
+assert.equal(path.relativize('/', '/x/y/z'), '/x/y/z');
+assert.equal(path.relativize('/', 'x/y/z'), '/x/y/z');
+
+assert.deepEqual(path.relativizeArray(['','a','b','c'],['','a','b','x','y']), ['..','x','y']);
+assert.deepEqual(path.relativizeArray(['a','b','c'],['','a','b','x','y']), ['','a','b','x','y']);
+assert.deepEqual(path.relativizeArray(['a','b','c'],['x','y']), ['a','b','c','x','y']);

@@ -788,6 +788,38 @@ var pathModule = createInternalModule("path", function (exports) {
       if (callback) callback(err ? false : true);
     });
   };
+  
+  exports.relativizeArray = function(base, target) {
+    base = exports.normalizeArray(base);
+    target = exports.normalizeArray(target);
+    var commonality = 0, npath = [], i = 0;
+    if (target.length === 0) return base;
+    if (target[0] !== '') return base.concat(target);
+    for (; i < base.length; i++) {
+      var bc = base[i], tc = target[i];
+      if (bc !== tc)
+        break;
+      commonality++;
+    };
+    if (commonality > 0) {
+      if (commonality > 1 || base[0] !== '') {
+        for (var x=i; x < base.length; x++)
+          npath.push('..');
+      }
+      else {
+        npath.push('');
+      }
+    }
+    for (; i < target.length; i++)
+      npath.push(target[i]);
+    return npath;
+  };
+
+  exports.relativize = function(base, target) {
+    base = base.replace(/\/+$/, '').split('/');
+    target = target.replace(/\/+$/, '').split('/');
+    return exports.relativizeArray(base, target).join('/');
+  };
 });
 
 var path = pathModule.exports;

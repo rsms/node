@@ -94,13 +94,6 @@ static int After(eio_req *req) {
         break;
       }
 
-      case EIO_READLINK:
-      {
-        argc = 2;
-        argv[1] = String::New(static_cast<char*>(req->ptr2), req->result);
-        break;
-      }
-
       case EIO_READ:
       {
         argc = 3;

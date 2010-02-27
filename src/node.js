@@ -792,26 +792,25 @@ var pathModule = createInternalModule("path", function (exports) {
   exports.relativizeArray = function(base, target) {
     base = exports.normalizeArray(base);
     target = exports.normalizeArray(target);
-    var commonality = 0, npath = [], i = 0;
+    var commonality = 0, npath = [];
     if (target.length === 0) return base;
     if (target[0] !== '') return base.concat(target);
-    for (; i < base.length; i++) {
-      var bc = base[i], tc = target[i];
+    for (; commonality < base.length; commonality++) {
+      var bc = base[commonality], tc = target[commonality];
       if (bc !== tc)
         break;
-      commonality++;
     };
     if (commonality > 0) {
       if (commonality > 1 || base[0] !== '') {
-        for (var x=i; x < base.length; x++)
+        for (var x=commonality; x < base.length; x++)
           npath.push('..');
       }
       else {
         npath.push('');
       }
     }
-    for (; i < target.length; i++)
-      npath.push(target[i]);
+    for (; commonality < target.length; commonality++)
+      npath.push(target[commonality]);
     return npath;
   };
 

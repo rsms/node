@@ -470,20 +470,17 @@ static Handle<Value> Cwd(const Arguments& args) {
 
 static Handle<Value> Umask(const Arguments& args){
   HandleScope scope;
-  unsigned int old;
-  if(args.Length() < 1) {
-    old = umask(0);
-    umask((mode_t)old);
-  }
-  else if(!args[0]->IsInt32()) {
+
+  if(args.Length() < 1 || !args[0]->IsInt32()) {
     return ThrowException(Exception::TypeError(
           String::New("argument must be an integer.")));
   }
-  else {
-    old = umask((mode_t)args[0]->Uint32Value());
-  }
+  unsigned int mask = args[0]->Uint32Value();
+  unsigned int old = umask((mode_t)mask);
+
   return scope.Close(Uint32::New(old));
 }
+
 
 static Handle<Value> GetUid(const Arguments& args) {
   HandleScope scope;

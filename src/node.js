@@ -506,6 +506,14 @@ var fsModule = createInternalModule("fs", function (exports) {
     return process.fs.readlink(path);
   };
 
+  exports.realpath = function (path, callback) {
+    process.fs.realpath(path, callback || noop);
+  };
+
+  exports.realpathSync = function (path) {
+    return process.fs.realpath(path);
+  };
+
   exports.symlink = function (destination, path, callback) {
     process.fs.symlink(destination, path, callback || noop);
   };

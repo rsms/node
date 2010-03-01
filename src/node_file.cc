@@ -279,6 +279,111 @@ static Handle<Value> ReadLink(const Arguments& args) {
   }
 }
 
+
+
+static int eio__realpath(eio_req *req) {
+  //struct _eio__mkstemp * rreq = (struct _eio__mkstemp *)(req->data);
+  char buf[PATH_MAX+1];
+  char *ptr;
+  ptr = realpath((const char *)req->ptr1, buf);
+  if (ptr == NULL) {
+    req->errorno = errno;
+    req->result = errno;
+  }
+  else {
+    req->ptr2 = static_cast<void*>(strdup(ptr));
+    req->result = 0;
+  }
+  return 0;
+}
+
+eio_req *eio_realpath(const char *path, int pri, eio_cb cb, void *data) {
+  eio_req *req;
+  req = (eio_req *)calloc(1, sizeof *req);
+  if (!req)
+    return 0;
+  req->type    = EIO_CUSTOM;
+  req->pri     = pri;
+  req->finish  = cb;
+  req->data    = data;
+  req->destroy = (void (*)(eio_req*))free;
+  req->feed = (void (*)(eio_req *))eio__realpath;
+  req->flags |= EIO_FLAG_PTR1_FREE;
+  req->ptr1 = strdup(path);
+  if (!req->ptr1) {
+    free(req);
+    return 0;
+  }
+  eio_submit (req);
+  return req;
+}
+
+static int After_eio__realpath(eio_req *req) {
+  HandleScope scope;
+
+  assert(req->type == EIO_CUSTOM);
+
+  Persistent<Function> *callback =
+    reinterpret_cast<Persistent<Function>*>(req->data);
+  assert((*callback)->IsFunction());
+
+  ev_unref(EV_DEFAULT_UC);
+
+  int argc = 0;
+  Local<Value> argv[2];  // 2 is the maximum number of args
+
+  if (req->errorno != 0) {
+    argc = 1;
+    argv[0] = errno_exception(req->errorno);
+  } else {
+    // Note: the error is always given the first argument of the callback.
+    // If there is no error then then the first argument is null.
+    argv[0] = Local<Value>::New(Null());
+    argc = 2;
+    argv[1] = String::New(static_cast<char*>(req->ptr2));
+  }
+
+  TryCatch try_catch;
+
+  (*callback)->Call(Context::GetCurrent()->Global(), argc, argv);
+
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
+  // Dispose of the persistent handle
+  callback->Dispose();
+  delete callback;
+
+  return 0;
+}
+
+
+static Handle<Value> RealPath(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 1 || !args[0]->IsString()) {
+    return THROW_BAD_ARGS;
+  }
+
+  String::Utf8Value path(args[0]->ToString());
+
+  if (args[1]->IsFunction()) {
+    eio_req *req = eio_realpath(*path, EIO_PRI_DEFAULT,
+      After_eio__realpath, persistent_callback(args[1]));
+    assert(req);
+    ev_ref(EV_DEFAULT_UC);
+    return Undefined();
+  }
+  else {
+    char buf[PATH_MAX+1];
+    char *ptr;
+    ptr = realpath(*path, buf);
+    if (ptr == NULL) return ThrowException(errno_exception(errno));
+    return scope.Close(String::New(buf));
+  }
+}
+
 static Handle<Value> Rename(const Arguments& args) {
   HandleScope scope;
 
@@ -582,6 +687,7 @@ void File::Initialize(Handle<Object> target) {
   NODE_SET_METHOD(target, "readlink", ReadLink);
   NODE_SET_METHOD(target, "unlink", Unlink);
   NODE_SET_METHOD(target, "write", Write);
+  NODE_SET_METHOD(target, "realpath", RealPath);
   
   NODE_SET_METHOD(target, "chmod", Chmod);
 

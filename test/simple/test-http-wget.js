@@ -1,5 +1,5 @@
-process.mixin(require("../common"));
-tcp = require("tcp");
+require("../common");
+net = require("net");
 http = require("http");
 
 // wget sends an HTTP/1.0 request with Connection: Keep-Alive
@@ -29,7 +29,7 @@ var server = http.createServer(function (req, res) {
 })
 server.listen(PORT);
 
-var c = tcp.createConnection(PORT);
+var c = net.createConnection(PORT);
 
 c.setEncoding("utf8");
 

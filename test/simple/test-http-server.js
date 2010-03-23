@@ -1,5 +1,5 @@
-process.mixin(require("../common"));
-tcp = require("tcp");
+require("../common");
+net = require("net");
 http = require("http");
 url = require("url");
 qs = require("querystring");
@@ -43,7 +43,7 @@ http.createServer(function (req, res) {
 
 }).listen(PORT);
 
-var c = tcp.createConnection(PORT);
+var c = net.createConnection(PORT);
 
 c.setEncoding("utf8");
 

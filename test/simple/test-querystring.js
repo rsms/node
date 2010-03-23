@@ -1,4 +1,4 @@
-process.mixin(require("../common"));
+require("../common");
 
 // test using assert
 
@@ -113,6 +113,10 @@ var f = qs.stringify({
   })
 });
 assert.equal(f, "a=b&q=x%3Dy%26y%3Dz");
+
+assert.doesNotThrow(function () {
+  qs.parse(undefined);
+});
 
 // nested in colon
 var f = qs.stringify({

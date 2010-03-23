@@ -237,7 +237,8 @@ class Compiler : public AllStatic {
                                     int line_offset, int column_offset,
                                     v8::Extension* extension,
                                     ScriptDataImpl* pre_data,
-                                    Handle<Object> script_data);
+                                    Handle<Object> script_data,
+                                    NativesFlag is_natives_code);
 
   // Compile a String source within a context for Eval.
   static Handle<JSFunction> CompileEval(Handle<String> source,
@@ -274,6 +275,13 @@ class Compiler : public AllStatic {
                                  Handle<Code> code);
 #endif
 };
+
+
+#ifdef ENABLE_DEBUGGER_SUPPORT
+
+Handle<Code> MakeCodeForLiveEdit(CompilationInfo* info);
+
+#endif
 
 
 // During compilation we need a global list of handles to constants

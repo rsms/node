@@ -13,7 +13,7 @@ function removed (reason) {
 }
 
 GLOBAL.__module = removed("'__module' has been renamed to 'module'");
-GLOBAL.include = removed("include(module) has been removed. Use process.mixin(GLOBAL, require(module)) to get the same effect.");
+GLOBAL.include = removed("include(module) has been removed. Use require(module)");
 GLOBAL.puts = removed("puts() has moved. Use require('sys') to bring it back.");
 GLOBAL.print = removed("print() has moved. Use require('sys') to bring it back.");
 GLOBAL.p = removed("p() has moved. Use require('sys') to bring it back.");
@@ -25,6 +25,7 @@ process.unwatchFile = removed("process.unwatchFile() has moved to fs.unwatchFile
 GLOBAL.node = {};
 
 node.createProcess = removed("node.createProcess() has been changed to process.createChildProcess() update your code");
+process.createChildProcess = removed("childProcess API has changed. See doc/api.txt.");
 node.exec = removed("process.exec() has moved. Use require('sys') to bring it back.");
 node.inherits = removed("node.inherits() has moved. Use require('sys') to access it.");
 process.inherits = removed("process.inherits() has moved to sys.inherits.");
@@ -42,9 +43,10 @@ node.dns.createConnection = removed("node.dns.createConnection() has moved. Use 
 
 /**********************************************************************/
 
-// Module 
+// Module
 
 var internalModuleCache = {};
+var extensionCache = {};
 
 function Module (id, parent) {
   this.id = id;
@@ -73,33 +75,42 @@ function createInternalModule (id, constructor) {
 };
 
 
-process.createChildProcess = function (file, args, env) {
-  var child = new process.ChildProcess();
-  args = args || [];
-  env = env || process.env;
-  var envPairs = [];
-  for (var key in env) {
-    if (env.hasOwnProperty(key)) {
-      envPairs.push(key + "=" + env[key]);
-    }
-  }
-  // TODO Note envPairs is not currently used in child_process.cc. The PATH
-  // needs to be searched for the 'file' command if 'file' does not contain
-  // a '/' character.
-  child.spawn(file, args, envPairs);
-  return child;
-};
+// This contains the source code for the files in lib/
+// Like, natives.fs is the contents of lib/fs.js
+var natives = process.binding('natives');
+
+function loadNative (id) {
+  var m = new Module(id);
+  internalModuleCache[id] = m;
+  var e = m._compile(natives[id], id);
+  if (e) throw e;
+  m.loaded = true;
+  return m;
+}
+
+function requireNative (id) {
+  if (internalModuleCache[id]) return internalModuleCache[id].exports;
+  if (!natives[id]) throw new Error('No such native module ' + id);
+  return loadNative(id).exports;
+}
+
 
 process.assert = function (x, msg) {
   if (!(x)) throw new Error(msg || "assertion error");
 };
+
 
 // From jQuery.extend in the jQuery JavaScript Library v1.3.2
 // Copyright (c) 2009 John Resig
 // Dual licensed under the MIT and GPL licenses.
 // http://docs.jquery.com/License
 // Modified for node.js (formely for copying properties correctly)
+var mixinMessage;
 process.mixin = function() {
+  if (!mixinMessage) {
+    mixinMessage = 'deprecation warning: process.mixin will be removed from node-core future releases.\n'
+    process.binding('stdio').writeError(mixinMessage);
+  }
   // copy reference to target object
   var target = arguments[0] || {}, i = 1, length = arguments.length, deep = false, source;
 
@@ -136,7 +147,7 @@ process.mixin = function() {
         else {
           // Prevent never-ending loop
           if (target === d.value) {
-            continue;
+            return;
           }
 
           if (deep && d.value && typeof d.value === "object") {
@@ -161,34 +172,66 @@ process.mixin = function() {
 var eventsModule = createInternalModule('events', function (exports) {
   exports.EventEmitter = process.EventEmitter;
 
-  // process.EventEmitter is defined in src/events.cc
+  // process.EventEmitter is defined in src/node_events.cc
   // process.EventEmitter.prototype.emit() is also defined there.
   process.EventEmitter.prototype.addListener = function (type, listener) {
-    if (listener instanceof Function) {
-      if (!this._events) this._events = {};
-      if (!this._events.hasOwnProperty(type)) this._events[type] = [];
-      // To avoid recursion in the case that type == "newListeners"! Before
-      // adding it to the listeners, first emit "newListeners".
-      this.emit("newListener", type, listener);
-      this._events[type].push(listener);
+    if (!(listener instanceof Function)) {
+      throw new Error('addListener only takes instances of Function');
     }
+
+    if (!this._events) this._events = {};
+
+    // To avoid recursion in the case that type == "newListeners"! Before
+    // adding it to the listeners, first emit "newListeners".
+    this.emit("newListener", type, listener);
+
+    if (!this._events[type]) {
+      // Optimize the case of one listener. Don't need the extra array object.
+      this._events[type] = listener;
+    } else if (this._events[type] instanceof Array) {
+      // If we've already got an array, just append.
+      this._events[type].push(listener);
+    } else {
+      // Adding the second element, need to change to array.
+      this._events[type] = [this._events[type], listener];
+    }
+
     return this;
   };
 
   process.EventEmitter.prototype.removeListener = function (type, listener) {
-    if (listener instanceof Function) {
-      // does not use listeners(), so no side effect of creating _events[type]
-      if (!this._events || !this._events.hasOwnProperty(type)) return;
-      var list = this._events[type];
-      if (list.indexOf(listener) < 0) return;
-      list.splice(list.indexOf(listener), 1);
+    if (!(listener instanceof Function)) {
+      throw new Error('removeListener only takes instances of Function');
     }
+
+    // does not use listeners(), so no side effect of creating _events[type]
+    if (!this._events || !this._events[type]) return this;
+
+    var list = this._events[type];
+
+    if (list instanceof Array) {
+      var i = list.indexOf(listener);
+      if (i < 0) return this;
+      list.splice(i, 1);
+    } else {
+      this._events[type] = null;
+    }
+
     return this;
+  };
+
+  process.EventEmitter.prototype.removeAllListeners = function (type) {
+    // does not use listeners(), so no side effect of creating _events[type]
+    if (!type || !this._events || !this._events[type]) return this;
+    this._events[type] = null;
   };
 
   process.EventEmitter.prototype.listeners = function (type) {
     if (!this._events) this._events = {};
-    if (!this._events.hasOwnProperty(type)) this._events[type] = [];
+    if (!this._events[type]) this._events[type] = [];
+    if (!(this._events[type] instanceof Array)) {
+      this._events[type] = [this._events[type]];
+    }
     return this._events[type];
   };
 
@@ -232,8 +275,9 @@ function isSignal (event) {
 
 process.addListener("newListener", function (event) {
   if (isSignal(event) && process.listeners(event).length === 0) {
-    var handler = new process.SignalHandler(process[event]);
-    handler.addListener("signal", function () {
+    var b = process.binding('signal_watcher');
+    var w = new b.SignalWatcher(process[event]);
+    w.addListener("signal", function () {
       process.emit(event);
     });
   }
@@ -246,35 +290,33 @@ function addTimerListener (callback) {
   // Special case the no param case to avoid the extra object creation.
   if (arguments.length > 2) {
     var args = Array.prototype.slice.call(arguments, 2);
-    timer.addListener("timeout", function(){
-      callback.apply(timer, args);
-    });
+    timer.callback = function () { callback.apply(timer, args); };
   } else {
-    timer.addListener("timeout", callback);
+    timer.callback = callback;
   }
 }
 
-GLOBAL.setTimeout = function (callback, after) {
+global.setTimeout = function (callback, after) {
   var timer = new process.Timer();
   addTimerListener.apply(timer, arguments);
   timer.start(after, 0);
   return timer;
 };
 
-GLOBAL.setInterval = function (callback, repeat) {
+global.setInterval = function (callback, repeat) {
   var timer = new process.Timer();
   addTimerListener.apply(timer, arguments);
   timer.start(repeat, repeat);
   return timer;
 };
 
-GLOBAL.clearTimeout = function (timer) {
+global.clearTimeout = function (timer) {
   if (timer instanceof process.Timer) {
     timer.stop();
   }
 };
 
-GLOBAL.clearInterval = GLOBAL.clearTimeout;
+global.clearInterval = global.clearTimeout;
 
 
 
@@ -286,66 +328,10 @@ if ("NODE_DEBUG" in process.env) debugLevel = 1;
 
 function debug (x) {
   if (debugLevel > 0) {
-    process.stdio.writeError(x + "\n");
+    process.binding('stdio').writeError(x + "\n");
   }
 }
 
-
-
-
-function readAll (fd, pos, content, encoding, callback) {
-  process.fs.read(fd, 4*1024, pos, encoding, function (err, chunk, bytesRead) {
-    if (err) {
-      if (callback) callback(err);
-    } else if (chunk) {
-      content += chunk;
-      pos += bytesRead;
-      readAll(fd, pos, content, encoding, callback);
-    } else {
-      process.fs.close(fd, function (err) {
-        if (callback) callback(err, content);
-      });
-    }
-  });
-}
-
-process.fs.readFile = function (path, encoding_, callback) {
-  var encoding = typeof(encoding_) == 'string' ? encoding : 'utf8';
-  var callback_ = arguments[arguments.length - 1];
-  var callback = (typeof(callback_) == 'function' ? callback_ : null);
-  process.fs.open(path, process.O_RDONLY, 0666, function (err, fd) {
-    if (err) {
-      if (callback) callback(err); 
-    } else {
-      readAll(fd, 0, "", encoding, callback);
-    }
-  });
-};
-
-process.fs.readFileSync = function (path, encoding) {
-  encoding = encoding || "utf8"; // default to utf8
-
-  debug('readFileSync open');
-
-  var fd = process.fs.open(path, process.O_RDONLY, 0666);
-  var content = '';
-  var pos = 0;
-  var r;
-
-  while ((r = process.fs.read(fd, 4*1024, pos, encoding)) && r[0]) {
-    debug('readFileSync read ' + r[1]);
-    content += r[0];
-    pos += r[1]
-  }
-
-  debug('readFileSync close');
-
-  process.fs.close(fd);
-
-  debug('readFileSync done');
-
-  return content;
-};
 
 var pathModule = createInternalModule("path", function (exports) {
   exports.join = function () {
@@ -406,7 +392,7 @@ var pathModule = createInternalModule("path", function (exports) {
   };
 
   exports.exists = function (path, callback) {
-    process.fs.stat(path, function (err, stats) {
+    requireNative('fs').stat(path, function (err, stats) {
       if (callback) callback(err ? false : true);
     });
   };
@@ -416,7 +402,7 @@ var path = pathModule.exports;
 
 function existsSync (path) {
   try {
-    process.fs.stat(path);
+    process.binding('fs').stat(path);
     return true;
   } catch (e) {
     return false;
@@ -425,15 +411,14 @@ function existsSync (path) {
 
 
 
-process.paths = [ path.join(process.installPrefix, "lib/node/libraries")
-               ];
+var modulePaths = [];
 
 if (process.env["HOME"]) {
-  process.paths.unshift(path.join(process.env["HOME"], ".node_libraries"));
+  modulePaths.unshift(path.join(process.env["HOME"], ".node_libraries"));
 }
 
 if (process.env["NODE_PATH"]) {
-  process.paths = process.env["NODE_PATH"].split(":").concat(process.paths);
+  modulePaths = process.env["NODE_PATH"].split(":").concat(modulePaths);
 }
 
 
@@ -474,8 +459,14 @@ function findModulePath (id, dirs, callback) {
     path.join(dir, id + ".js"),
     path.join(dir, id + ".node"),
     path.join(dir, id, "index.js"),
-    path.join(dir, id, "index.addon")
+    path.join(dir, id, "index.node")
   ];
+
+  var ext;
+  for (ext in extensionCache) {
+    locations.push(path.join(dir, id + ext));
+    locations.push(path.join(dir, id, 'index' + ext));
+  }
 
   function searchLocations () {
     var location = locations.shift();
@@ -491,7 +482,7 @@ function findModulePath (id, dirs, callback) {
         } else {
           return searchLocations();
         }
-      })
+      });
 
     // if sync
     } else {
@@ -511,73 +502,107 @@ function resolveModulePath(request, parent) {
   var id, paths;
   if (request.charAt(0) == "." && (request.charAt(1) == "/" || request.charAt(1) == ".")) {
     // Relative request
+    debug("RELATIVE: requested:" + request + " set ID to: "+id+" from "+parent.id);
+
+    var exts = ['js', 'node'], ext;
+    for (ext in extensionCache) {
+      exts.push(ext.slice(1));
+    }
+
     var parentIdPath = path.dirname(parent.id +
-      (path.basename(parent.filename).match(/^index\.(js|addon)$/) ? "/" : ""));
+      (path.basename(parent.filename).match(new RegExp('^index\\.(' + exts.join('|') + ')$')) ? "/" : ""));
     id = path.join(parentIdPath, request);
-    // debug("RELATIVE: requested:"+request+" set ID to: "+id+" from "+parent.id+"("+parentIdPath+")");
     paths = [path.dirname(parent.filename)];
   } else {
     id = request;
     // debug("ABSOLUTE: id="+id);
-    paths = process.paths;
+    paths = modulePaths;
   }
 
   return [id, paths];
 }
 
 
-function loadModuleSync (request, parent) {
-  var resolvedModule = resolveModulePath(request, parent);
-  var id = resolvedModule[0];
-  var paths = resolvedModule[1];
-
-  debug("loadModuleSync REQUEST  " + (request) + " parent: " + parent.id);
-
-  var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
-
-  if (cachedModule) {
-    debug("found  " + JSON.stringify(id) + " in cache");
-    return cachedModule.exports;
-  } else {
-    debug("looking for " + JSON.stringify(id) + " in " + JSON.stringify(paths));
-    var filename = findModulePath(request, paths);
-    if (!filename) {
-      throw new Error("Cannot find module '" + request + "'");
-    } else {
-      var module = new Module(id, parent);
-      module.loadSync(filename);
-      return module.exports;
-    }
-  }
-}
-
-
 function loadModule (request, parent, callback) {
-  var
-    resolvedModule = resolveModulePath(request, parent),
-    id = resolvedModule[0],
-    paths = resolvedModule[1];
+  var resolvedModule = resolveModulePath(request, parent),
+      id = resolvedModule[0],
+      paths = resolvedModule[1];
 
   debug("loadModule REQUEST  " + (request) + " parent: " + parent.id);
 
   var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
+
+  if (!cachedModule) {
+    // Try to compile from native modules
+    if (natives[id]) {
+      debug('load native module ' + id);
+      cachedModule = loadNative(id);
+    }
+  }
+
   if (cachedModule) {
     debug("found  " + JSON.stringify(id) + " in cache");
-    if (callback) callback(null, cachedModule.exports);
-   } else {
-    debug("looking for " + JSON.stringify(id) + " in " + JSON.stringify(paths));
+    if (callback) {
+      callback(null, cachedModule.exports);
+    } else {
+      return cachedModule.exports;
+    }
+
+  } else {
     // Not in cache
-    findModulePath(request, paths, function (filename) {
+    debug("looking for " + JSON.stringify(id) + " in " + JSON.stringify(paths));
+
+    if (!callback) {
+      // sync
+      var filename = findModulePath(request, paths);
       if (!filename) {
-        var err = new Error("Cannot find module '" + request + "'");
-        if (callback) callback(err);
+        throw new Error("Cannot find module '" + request + "'");
       } else {
         var module = new Module(id, parent);
-        module.load(filename, callback);
+        module.loadSync(filename);
+        return module.exports;
       }
-    });
+
+    } else {
+      // async
+      findModulePath(request, paths, function (filename) {
+        if (!filename) {
+          var err = new Error("Cannot find module '" + request + "'");
+          callback(err);
+        } else {
+          var module = new Module(id, parent);
+          module.load(filename, callback);
+        }
+      });
+    }
   }
 };
+
+
+// This function allows the user to register file extensions to custom
+// Javascript 'compilers'.  It accepts 2 arguments, where ext is a file
+// extension as a string. E.g. '.coffee' for coffee-script files.  compiler
+// is the second argument, which is a function that gets called when the
+// specified file extension is found. The compiler is passed a single
+// argument, which is, the file contents, which need to be compiled.
+//
+// The function needs to return the compiled source, or an non-string
+// variable that will get attached directly to the module exports. Example:
+//
+//    require.registerExtension('.coffee', function(content) {
+//      return doCompileMagic(content);
+//    });
+function registerExtension(ext, compiler) {
+  if ('string' !== typeof ext && false === /\.\w+$/.test(ext)) {
+    throw new Error('require.registerExtension: First argument not a valid extension string.');
+  }
+
+  if ('function' !== typeof compiler) {
+    throw new Error('require.registerExtension: Second argument not a valid compiler function.');
+  }
+
+  extensionCache[ext] = compiler;
+}
 
 
 Module.prototype.loadSync = function (filename) {
@@ -635,50 +660,62 @@ function cat (id, callback) {
       }
     });
   } else {
-    process.fs.readFile(id, callback);
+    requireNative('fs').readFile(id, callback);
   }
 }
 
 
-Module.prototype._loadContent = function (content, filename) {
+// Returns exception if any
+Module.prototype._compile = function (content, filename) {
   var self = this;
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
+
+  // Compile content if needed
+  var ext = path.extname(filename);
+  if (extensionCache[ext]) {
+    content = extensionCache[ext](content);
+  }
 
   function requireAsync (url, cb) {
     loadModule(url, self, cb);
   }
 
   function require (path) {
-    return loadModuleSync(path, self);
+    return loadModule(path, self);
   }
 
-  require.paths = process.paths;
+  require.paths = modulePaths;
   require.async = requireAsync;
   require.main = process.mainModule;
-  // create wrapper function
-  var wrapper = "(function (exports, require, module, __filename, __dirname) { "
-              + content
-              + "\n});";
+  require.registerExtension = registerExtension;
 
-  try {
-    var compiledWrapper = process.compile(wrapper, filename);
-    var dirName = path.dirname(filename);
-    if (filename === process.argv[1])
-      process.checkBreak();
-    compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
-  } catch (e) {
-    return e;
+
+  if ('string' === typeof content) {
+    // create wrapper function
+    var wrapper = "(function (exports, require, module, __filename, __dirname) { "
+                + content
+                + "\n});";
+
+    try {
+      var compiledWrapper = process.compile(wrapper, filename);
+      var dirName = path.dirname(filename);
+      if (filename === process.argv[1]) {
+        process.checkBreak();
+      }
+      compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
+    } catch (e) {
+      return e;
+    }
+  } else {
+    self.exports = content;
   }
 };
 
 
 Module.prototype._loadScriptSync = function (filename) {
-  var content = process.fs.readFileSync(filename);
-  // remove shebang
-  content = content.replace(/^\#\!.*/, '');
-
-  var e = this._loadContent(content, filename);
+  var content = requireNative('fs').readFileSync(filename);
+  var e = this._compile(content, filename);
   if (e) {
     throw e;
   } else {
@@ -694,7 +731,7 @@ Module.prototype._loadScript = function (filename, callback) {
     if (err) {
       if (callback) callback(err);
     } else {
-      var e = self._loadContent(content, filename);
+      var e = self._compile(content, filename);
       if (e) {
         if (callback) callback(e);
       } else {
@@ -725,6 +762,26 @@ Module.prototype._waitChildrenLoad = function (callback) {
     }
   }
   if (children.length == nloaded && callback) callback();
+};
+
+
+var stdout;
+process.__defineGetter__('stdout', function () {
+  if (stdout) return stdout;
+  var net = requireNative('net');
+  stdout = new net.Stream(process.binding('stdio').stdoutFD);
+  return stdout;
+});
+
+var stdin;
+process.openStdin = function () {
+  if (stdin) return stdin;
+  var net = requireNative('net');
+  var fd = process.binding('stdio').openStdin();
+  stdin = new net.Stream(fd);
+  stdin.resume();
+  stdin.readable = true;
+  return stdin;
 };
 
 
@@ -759,4 +816,4 @@ process.loop();
 
 process.emit("exit");
 
-})
+});

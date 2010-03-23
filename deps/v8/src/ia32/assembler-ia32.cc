@@ -753,11 +753,26 @@ void Assembler::cmov(Condition cc, Register dst, const Operand& src) {
 }
 
 
+void Assembler::cld() {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xFC);
+}
+
+
 void Assembler::rep_movs() {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
   EMIT(0xF3);
   EMIT(0xA5);
+}
+
+
+void Assembler::rep_stos() {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xF3);
+  EMIT(0xAB);
 }
 
 
@@ -1637,11 +1652,26 @@ void Assembler::fld(int i) {
 }
 
 
+void Assembler::fstp(int i) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit_farith(0xDD, 0xD8, i);
+}
+
+
 void Assembler::fld1() {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
   EMIT(0xD9);
   EMIT(0xE8);
+}
+
+
+void Assembler::fldpi() {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xD9);
+  EMIT(0xEB);
 }
 
 
@@ -1682,6 +1712,14 @@ void Assembler::fstp_d(const Operand& adr) {
   last_pc_ = pc_;
   EMIT(0xDD);
   emit_operand(ebx, adr);
+}
+
+
+void Assembler::fst_d(const Operand& adr) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xDD);
+  emit_operand(edx, adr);
 }
 
 
@@ -2012,6 +2050,17 @@ void Assembler::cvtsi2sd(XMMRegister dst, const Operand& src) {
 }
 
 
+void Assembler::cvtss2sd(XMMRegister dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xF3);
+  EMIT(0x0F);
+  EMIT(0x5A);
+  emit_sse_operand(dst, src);
+}
+
+
 void Assembler::addsd(XMMRegister dst, XMMRegister src) {
   ASSERT(CpuFeatures::IsEnabled(SSE2));
   EnsureSpace ensure_space(this);
@@ -2067,6 +2116,16 @@ void Assembler::xorpd(XMMRegister dst, XMMRegister src) {
 }
 
 
+void Assembler::sqrtsd(XMMRegister dst, XMMRegister src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xF2);
+  EMIT(0x0F);
+  EMIT(0x51);
+  emit_sse_operand(dst, src);
+}
+
+
 void Assembler::comisd(XMMRegister dst, XMMRegister src) {
   ASSERT(CpuFeatures::IsEnabled(SSE2));
   EnsureSpace ensure_space(this);
@@ -2074,6 +2133,28 @@ void Assembler::comisd(XMMRegister dst, XMMRegister src) {
   EMIT(0x66);
   EMIT(0x0F);
   EMIT(0x2F);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::ucomisd(XMMRegister dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0x66);
+  EMIT(0x0F);
+  EMIT(0x2E);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::movmskpd(Register dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0x66);
+  EMIT(0x0F);
+  EMIT(0x50);
   emit_sse_operand(dst, src);
 }
 
@@ -2157,6 +2238,50 @@ void Assembler::movsd(XMMRegister dst, const Operand& src) {
   emit_sse_operand(dst, src);
 }
 
+void Assembler::movsd(XMMRegister dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0xF2);
+  EMIT(0x0F);
+  EMIT(0x10);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::movd(XMMRegister dst, const Operand& src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0x66);
+  EMIT(0x0F);
+  EMIT(0x6E);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::pxor(XMMRegister dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0x66);
+  EMIT(0x0F);
+  EMIT(0xEF);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::ptest(XMMRegister dst, XMMRegister src) {
+  ASSERT(CpuFeatures::IsEnabled(SSE2));
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  EMIT(0x66);
+  EMIT(0x0F);
+  EMIT(0x38);
+  EMIT(0x17);
+  emit_sse_operand(dst, src);
+}
+
 
 void Assembler::emit_sse_operand(XMMRegister reg, const Operand& adr) {
   Register ireg = { reg.code() };
@@ -2165,6 +2290,11 @@ void Assembler::emit_sse_operand(XMMRegister reg, const Operand& adr) {
 
 
 void Assembler::emit_sse_operand(XMMRegister dst, XMMRegister src) {
+  EMIT(0xC0 | dst.code() << 3 | src.code());
+}
+
+
+void Assembler::emit_sse_operand(Register dst, XMMRegister src) {
   EMIT(0xC0 | dst.code() << 3 | src.code());
 }
 

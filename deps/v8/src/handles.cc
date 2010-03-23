@@ -203,7 +203,7 @@ void TransformToFastProperties(Handle<JSObject> object,
 
 
 void FlattenString(Handle<String> string) {
-  CALL_HEAP_FUNCTION_VOID(string->TryFlattenIfNotFlat());
+  CALL_HEAP_FUNCTION_VOID(string->TryFlatten());
   ASSERT(string->IsFlat());
 }
 
@@ -280,6 +280,12 @@ Handle<Object> GetProperty(Handle<JSObject> obj,
 Handle<Object> GetProperty(Handle<Object> obj,
                            Handle<Object> key) {
   CALL_HEAP_FUNCTION(Runtime::GetObjectProperty(obj, key), Object);
+}
+
+
+Handle<Object> GetElement(Handle<Object> obj,
+                          uint32_t index) {
+  CALL_HEAP_FUNCTION(Runtime::GetElement(obj, index), Object);
 }
 
 
@@ -362,8 +368,11 @@ Handle<Object> LookupSingleCharacterStringFromCode(uint32_t index) {
 }
 
 
-Handle<String> SubString(Handle<String> str, int start, int end) {
-  CALL_HEAP_FUNCTION(str->SubString(start, end), String);
+Handle<String> SubString(Handle<String> str,
+                         int start,
+                         int end,
+                         PretenureFlag pretenure) {
+  CALL_HEAP_FUNCTION(str->SubString(start, end, pretenure), String);
 }
 
 
@@ -771,7 +780,7 @@ void LoadLazy(Handle<JSObject> obj, bool* pending_exception) {
     bool allow_natives_syntax = FLAG_allow_natives_syntax;
     FLAG_allow_natives_syntax = true;
     boilerplate = Compiler::Compile(source_code, script_name, 0, 0, NULL, NULL,
-                                    Handle<String>::null());
+                                    Handle<String>::null(), NATIVES_CODE);
     FLAG_allow_natives_syntax = allow_natives_syntax;
     // If the compilation failed (possibly due to stack overflows), we
     // should never enter the result in the natives cache. Instead we

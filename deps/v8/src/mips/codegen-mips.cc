@@ -31,6 +31,7 @@
 #include "bootstrapper.h"
 #include "codegen-inl.h"
 #include "debug.h"
+#include "ic-inl.h"
 #include "parser.h"
 #include "register-allocator-inl.h"
 #include "runtime.h"
@@ -81,7 +82,7 @@ CodeGenerator::CodeGenerator(MacroAssembler* masm)
 // a1: called JS function
 // cp: callee's context
 
-void CodeGenerator::Generate(CompilationInfo* info, Mode mode) {
+void CodeGenerator::Generate(CompilationInfo* infomode) {
   UNIMPLEMENTED_MIPS();
 }
 
@@ -292,10 +293,35 @@ void CodeGenerator::GenerateIsNonNegativeSmi(ZoneList<Expression*>* args) {
 }
 
 
+void CodeGenerator::GenerateMathPow(ZoneList<Expression*>* args) {
+  UNIMPLEMENTED_MIPS();
+}
+
+
+void CodeGenerator::GenerateMathCos(ZoneList<Expression*>* args) {
+  UNIMPLEMENTED_MIPS();
+}
+
+
+void CodeGenerator::GenerateMathSin(ZoneList<Expression*>* args) {
+  UNIMPLEMENTED_MIPS();
+}
+
+
+void CodeGenerator::GenerateMathSqrt(ZoneList<Expression*>* args) {
+  UNIMPLEMENTED_MIPS();
+}
+
+
 // This should generate code that performs a charCodeAt() call or returns
 // undefined in order to trigger the slow case, Runtime_StringCharCodeAt.
 // It is not yet implemented on ARM, so it always goes to the slow case.
 void CodeGenerator::GenerateFastCharCodeAt(ZoneList<Expression*>* args) {
+  UNIMPLEMENTED_MIPS();
+}
+
+
+void CodeGenerator::GenerateCharFromCode(ZoneList<Expression*>* args) {
   UNIMPLEMENTED_MIPS();
 }
 
@@ -320,7 +346,7 @@ void CodeGenerator::GenerateArgumentsLength(ZoneList<Expression*>* args) {
 }
 
 
-void CodeGenerator::GenerateArgumentsAccess(ZoneList<Expression*>* args) {
+void CodeGenerator::GenerateArguments(ZoneList<Expression*>* args) {
   UNIMPLEMENTED_MIPS();
 }
 
@@ -414,6 +440,11 @@ bool CodeGenerator::HasValidEntryRegisters() { return true; }
 #define __ ACCESS_MASM(masm)
 
 
+Handle<Code> GetBinaryOpStub(int key, BinaryOpIC::TypeInfo type_info) {
+  return Handle<Code>::null();
+}
+
+
 // On entry a0 and a1 are the things to be compared.  On exit v0 is 0,
 // positive or negative to indicate the result of the comparison.
 void CompareStub::Generate(MacroAssembler* masm) {
@@ -457,6 +488,34 @@ void CEntryStub::Generate(MacroAssembler* masm) {
 
 void JSEntryStub::GenerateBody(MacroAssembler* masm, bool is_construct) {
   UNIMPLEMENTED_MIPS();
+
+  // Save callee saved registers on the stack.
+  __ MultiPush(kCalleeSaved | ra.bit());
+
+  // ********** State **********
+  //
+  // * Registers:
+  // a0: entry_address
+  // a1: function
+  // a2: reveiver_pointer
+  // a3: argc
+  //
+  // * Stack:
+  // ---------------------------
+  // args
+  // ---------------------------
+  // 4 args slots
+  // ---------------------------
+  // callee saved registers + ra
+  // ---------------------------
+  //
+  // ***************************
+
+  __ break_(0x1234);
+
+  // Restore callee saved registers from the stack.
+  __ MultiPop(kCalleeSaved | ra.bit());
+
   // Load a result.
   __ li(v0, Operand(0x1234));
   __ jr(ra);

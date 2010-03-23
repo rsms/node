@@ -1,5 +1,5 @@
-process.mixin(require("../common"));
-tcp = require("tcp");
+require("../common");
+net = require("net");
 http = require("http");
 
 var body = "hello world\n";
@@ -13,7 +13,7 @@ var server = http.createServer(function (req, res) {
 })
 server.listen(PORT);
 
-var c = tcp.createConnection(PORT);
+var c = net.createConnection(PORT);
 
 c.setEncoding("utf8");
 

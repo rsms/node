@@ -154,14 +154,17 @@ class CodeGenerator: public AstVisitor {
   // used by the debugger to patch the JS return sequence.
   static const int kJSReturnSequenceLength = 6;
 
+  // If the name is an inline runtime function call return the number of
+  // expected arguments. Otherwise return -1.
+  static int InlineRuntimeCallArgumentsCount(Handle<String> name);
+
  private:
   // Construction/Destruction.
   explicit CodeGenerator(MacroAssembler* masm);
-  virtual ~CodeGenerator() { delete masm_; }
 
   // Accessors.
   inline bool is_eval();
-  Scope* scope() const { return scope_; }
+  inline Scope* scope();
 
   // Generating deferred code.
   void ProcessDeferred();
@@ -184,11 +187,12 @@ class CodeGenerator: public AstVisitor {
 #undef DEF_VISIT
 
   // Main code generation function
-  void Generate(CompilationInfo* info, Mode mode);
+  void Generate(CompilationInfo* info);
 
   struct InlineRuntimeLUT {
     void (CodeGenerator::*method)(ZoneList<Expression*>*);
     const char* name;
+    int nargs;
   };
 
   static InlineRuntimeLUT* FindInlineRuntimeLUT(Handle<String> name);
@@ -217,7 +221,7 @@ class CodeGenerator: public AstVisitor {
 
   // Support for arguments.length and arguments[?].
   void GenerateArgumentsLength(ZoneList<Expression*>* args);
-  void GenerateArgumentsAccess(ZoneList<Expression*>* args);
+  void GenerateArguments(ZoneList<Expression*>* args);
 
   // Support for accessing the class and value fields of an object.
   void GenerateClassOf(ZoneList<Expression*>* args);
@@ -226,6 +230,9 @@ class CodeGenerator: public AstVisitor {
 
   // Fast support for charCodeAt(n).
   void GenerateFastCharCodeAt(ZoneList<Expression*>* args);
+
+  // Fast support for string.charAt(n) and string[n].
+  void GenerateCharFromCode(ZoneList<Expression*>* args);
 
   // Fast support for object equality testing.
   void GenerateObjectEquals(ZoneList<Expression*>* args);
@@ -244,10 +251,11 @@ class CodeGenerator: public AstVisitor {
   void GenerateRegExpExec(ZoneList<Expression*>* args);
   void GenerateNumberToString(ZoneList<Expression*>* args);
 
-
-  // Fast support for Math.sin and Math.cos.
-  inline void GenerateMathSin(ZoneList<Expression*>* args);
-  inline void GenerateMathCos(ZoneList<Expression*>* args);
+  // Fast call to math functions.
+  void GenerateMathPow(ZoneList<Expression*>* args);
+  void GenerateMathSin(ZoneList<Expression*>* args);
+  void GenerateMathCos(ZoneList<Expression*>* args);
+  void GenerateMathSqrt(ZoneList<Expression*>* args);
 
   // Simple condition analysis.
   enum ConditionAnalysis {
@@ -302,6 +310,7 @@ class CodeGenerator: public AstVisitor {
   friend class JumpTarget;
   friend class Reference;
   friend class FastCodeGenerator;
+  friend class FullCodeGenerator;
   friend class FullCodeGenSyntaxChecker;
 
   DISALLOW_COPY_AND_ASSIGN(CodeGenerator);

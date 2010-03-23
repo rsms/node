@@ -31,14 +31,14 @@
 #include "codegen-inl.h"
 #include "compilation-cache.h"
 #include "compiler.h"
+#include "data-flow.h"
 #include "debug.h"
 #include "fast-codegen.h"
 #include "full-codegen.h"
+#include "liveedit.h"
 #include "oprofile-agent.h"
 #include "rewriter.h"
 #include "scopes.h"
-#include "usage-analyzer.h"
-#include "liveedit.h"
 
 namespace v8 {
 namespace internal {
@@ -48,7 +48,7 @@ static Handle<Code> MakeCode(Handle<Context> context, CompilationInfo* info) {
   FunctionLiteral* function = info->function();
   ASSERT(function != NULL);
   // Rewrite the AST by introducing .result assignments where needed.
-  if (!Rewriter::Process(function) || !AnalyzeVariableUsage(function)) {
+  if (!Rewriter::Process(function)) {
     // Signal a stack overflow by returning a null handle.  The stack
     // overflow exception will be thrown by the caller.
     return Handle<Code>::null();
@@ -77,6 +77,37 @@ static Handle<Code> MakeCode(Handle<Context> context, CompilationInfo* info) {
     // Signal a stack overflow by returning a null handle.  The stack
     // overflow exception will be thrown by the caller.
     return Handle<Code>::null();
+  }
+
+  if (function->scope()->num_parameters() > 0 ||
+      function->scope()->num_stack_slots()) {
+    AssignedVariablesAnalyzer ava(function);
+    ava.Analyze();
+    if (ava.HasStackOverflow()) {
+      return Handle<Code>::null();
+    }
+  }
+
+  if (FLAG_use_flow_graph) {
+    FlowGraphBuilder builder;
+    builder.Build(function);
+
+    if (!builder.HasStackOverflow()) {
+      int variable_count =
+          function->num_parameters() + function->scope()->num_stack_slots();
+      if (variable_count > 0 && builder.definitions()->length() > 0) {
+        ReachingDefinitions rd(builder.postorder(),
+                               builder.definitions(),
+                               variable_count);
+        rd.Compute();
+      }
+    }
+
+#ifdef DEBUG
+    if (FLAG_print_graph_text && !builder.HasStackOverflow()) {
+      builder.graph()->PrintText(builder.postorder());
+    }
+#endif
   }
 
   // Generate code and return it.  Code generator selection is governed by
@@ -115,6 +146,14 @@ static Handle<Code> MakeCode(Handle<Context> context, CompilationInfo* info) {
 
   return CodeGenerator::MakeCode(info);
 }
+
+
+#ifdef ENABLE_DEBUGGER_SUPPORT
+Handle<Code> MakeCodeForLiveEdit(CompilationInfo* info) {
+  Handle<Context> context = Handle<Context>::null();
+  return MakeCode(context, info);
+}
+#endif
 
 
 static Handle<JSFunction> MakeFunction(bool is_global,
@@ -224,7 +263,7 @@ static Handle<JSFunction> MakeFunction(bool is_global,
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
   // Notify debugger
-  Debugger::OnAfterCompile(script, fun);
+  Debugger::OnAfterCompile(script, Debugger::NO_AFTER_COMPILE_FLAGS);
 #endif
 
   return fun;
@@ -239,7 +278,8 @@ Handle<JSFunction> Compiler::Compile(Handle<String> source,
                                      int line_offset, int column_offset,
                                      v8::Extension* extension,
                                      ScriptDataImpl* input_pre_data,
-                                     Handle<Object> script_data) {
+                                     Handle<Object> script_data,
+                                     NativesFlag natives) {
   int source_length = source->length();
   Counters::total_load_size.Increment(source_length);
   Counters::total_compile_size.Increment(source_length);
@@ -267,6 +307,9 @@ Handle<JSFunction> Compiler::Compile(Handle<String> source,
 
     // Create a script object describing the script to be compiled.
     Handle<Script> script = Factory::NewScript(source);
+    if (natives == NATIVES_CODE) {
+      script->set_type(Smi::FromInt(Script::TYPE_NATIVE));
+    }
     if (!script_name.is_null()) {
       script->set_name(*script_name);
       script->set_line_offset(Smi::FromInt(line_offset));
@@ -442,6 +485,37 @@ Handle<JSFunction> Compiler::BuildBoilerplate(FunctionLiteral* literal,
     // the AST optimizer/analyzer.
     if (!Rewriter::Optimize(literal)) {
       return Handle<JSFunction>::null();
+    }
+
+    if (literal->scope()->num_parameters() > 0 ||
+        literal->scope()->num_stack_slots()) {
+      AssignedVariablesAnalyzer ava(literal);
+      ava.Analyze();
+      if (ava.HasStackOverflow()) {
+        return Handle<JSFunction>::null();
+      }
+    }
+
+    if (FLAG_use_flow_graph) {
+      FlowGraphBuilder builder;
+      builder.Build(literal);
+
+    if (!builder.HasStackOverflow()) {
+      int variable_count =
+          literal->num_parameters() + literal->scope()->num_stack_slots();
+      if (variable_count > 0 && builder.definitions()->length() > 0) {
+        ReachingDefinitions rd(builder.postorder(),
+                               builder.definitions(),
+                               variable_count);
+        rd.Compute();
+      }
+    }
+
+#ifdef DEBUG
+      if (FLAG_print_graph_text && !builder.HasStackOverflow()) {
+        builder.graph()->PrintText(builder.postorder());
+      }
+#endif
     }
 
     // Generate code and return it.  The way that the compilation mode

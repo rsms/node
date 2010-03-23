@@ -1,7 +1,7 @@
 NODE(1)
 =======
 Ryan Dahl <ry@tinyclouds.org>
-Version, 0.1.30, 2010.02.22
+Version, 0.1.33, 2010.03.19
 
 
 == NAME
@@ -143,32 +143,21 @@ Gets/sets the group identity of the process. (See setgid(2).)
 +process.chdir(directory)+::
 Changes the current working directory of the process.
 
-+process.umask(mask)+ ::
-Sets the process's file mode creation mask. Child processes inherit the mask 
-from the parent process.
-  - returns the old mask.
++process.umask([mask])+ ::
+Sets or read the process's file mode creation mask. Child processes inherit
+the mask from the parent process.
+  - returns the old mask if +mask+ argument is given, otherwise returns 
+the current mask.
 
 +process.kill(pid, signal="SIGTERM")+ ::
 Send a signal to a process. +pid+ is the process id and +signal+ is the
 signal to send; for example, "SIGINT" or "SIGUSR1".  See kill(2) for more
 information.
 
-+process.compile(source, scriptOrigin)+::
-Just like +eval()+ except that you can specify a +scriptOrigin+ for better
-error reporting.
++process.compile(code, scriptOrigin)+::
+Similar to +eval()+ except that you can specify a +scriptOrigin+ for better
+error reporting and the +code+ cannot see the local scope.
 
-+process.mixin([deep], target, object1, [objectN])+ ::
-Extend one object with one or more others, returning the modified object.
-If no target is specified, the +GLOBAL+ namespace itself is extended. 
-Keep in mind that the target object will be modified, and will be returned
-from +process.mixin()+.
-+
-If a boolean true is specified as the first argument, Node performs a deep
-copy, recursively copying any objects it finds. Otherwise, the copy will
-share structure with the original object(s).
-+
-Undefined properties are not copied. However, properties inherited from the
-object's prototype will be copied over.
 
 == System module
 
@@ -187,6 +176,8 @@ Like +puts()+ but without the trailing new-line.
 A synchronous output function. Will block the process and
 output +string+ immediately to +stdout+.
 
++log(string)+::
+Output with timestamp.
 
 
 +inspect(object, showHidden, depth)+ ::
@@ -199,23 +190,6 @@ If +depth+ is provided, it tells +inspect+ how many times to recurse while
 formatting the object. This is useful for inspecting large complicated objects.
 The default is to only recurse twice.  To make it recurse indefinitely, pass
 in +null+ for +depth+.
-
-
-+exec(command, callback)+::
-Executes the command as a child process, buffers the output and returns it
-in a callback.
-+
-----------------------------------------
-var sys = require("sys");
-sys.exec("ls /", function (err, stdout, stderr) {
-  if (err) throw err;
-  sys.puts(stdout);
-});
-----------------------------------------
-+
-The callback gets the arguments +(err, stdout, stderr)+. On success +err+
-will be +null+. On error +err+ will be an instance of +Error+ and +err.code+
-will be the exit code of the child process.
 
 
 == Events
@@ -259,6 +233,9 @@ server.addListener("connection", function (socket) {
 +emitter.removeListener(event, listener)+ ::
 Remove a listener from the listener array for the specified event.
 *Caution*: changes array indices in the listener array behind the listener.
+
++emitter.removeAllListeners(event)+ ::
+Removes all listeners from the listener array for the specified event.
 
 +emitter.listeners(event)+ ::
 Returns an array of listeners for the specified event. This array can be
@@ -343,33 +320,20 @@ A module prefixed with +"./"+ is relative to the file calling +require()+.
 That is, +circle.js+ must be in the same directory as +foo.js+ for
 +require("./circle")+ to find it.
 
-Without the leading +"./"+, like +require("mjsunit")+ the module is searched
+Without the leading +"./"+, like +require("assert")+ the module is searched
 for in the +require.paths+ array. +require.paths+ on my system looks like
 this: 
 
 ----------------------------------------
-[ "/home/ryan/.node_libraries"
-, "/usr/local/lib/node/libraries" 
-]
+[ "/home/ryan/.node_libraries" ]
 ----------------------------------------
 
-That is, when +require("mjsunit")+ is called Node looks for 
+That is, when +require("assert")+ is called Node looks for 
 
-  1. +"/home/ryan/.node_libraries/mjsunit.js"+ 
-
-  2. +"/home/ryan/.node_libraries/mjsunit.node"+ 
-
-  3. +"/home/ryan/.node_libraries/mjsunit/index.js"+ 
-
-  4. +"/home/ryan/.node_libraries/mjsunit/index.node"+ 
-
-  5. +"/usr/local/lib/node/libraries/mjsunit.js"+ 
-
-  6. +"/usr/local/lib/node/libraries/mjsunit.node"+ 
-
-  7. +"/usr/local/lib/node/libraries/mjsunit/index.js"+ 
-
-  8. +"/usr/local/lib/node/libraries/mjsunit/index.node"+ 
+  1. +"/home/ryan/.node_libraries/assert.js"+
+  2. +"/home/ryan/.node_libraries/assert.node"+
+  3. +"/home/ryan/.node_libraries/assert/index.js"+
+  4. +"/home/ryan/.node_libraries/assert/index.node"+
 
 interrupting once a file is found. Files ending in +".node"+ are binary Addon
 Modules; see the section below about addons. +"index.js"+ allows one to
@@ -418,25 +382,18 @@ Stops a interval from triggering.
 == Child Processes
 
 Node provides a tridirectional +popen(3)+ facility through the class
-+process.ChildProcess+. It is possible to stream data through the child's +stdin+,
-+stdout+, and +stderr+ in a fully non-blocking way.
++ChildProcess+ class. It is possible to stream data through the child's
++stdin+, +stdout+, and +stderr+ in a fully non-blocking way.
 
-=== +process.ChildProcess+
+To create a child process use +require("child_process").spawn()+.
+
+Child processes always have three streams associated with them.
++child.stdin+, +child.stdout+, and +child.stderr+. 
+
 
 [cols="1,2,10",options="header"]
 |=========================================================
 | Event      | Parameters |Notes
-
-| +"output"+ | +data+     | Each time the child process 
-                            sends data to its +stdout+, this event is
-                            emitted. +data+ is a string. If the child
-                            process closes its +stdout+ stream (a common
-                            thing to do on exit), this event will be emitted
-                            with +data === null+.
-
-| +"error"+  | +data+     | Identical to the +"output"+ event except for
-                            +stderr+ instead of +stdout+.
-
 | +"exit"+   | +code+     | This event is emitted after the child process
                             ends. +code+ is the final exit code of the
                             process. One can be assured that after this
@@ -444,19 +401,18 @@ Node provides a tridirectional +popen(3)+ facility through the class
                             +"error"+ callbacks will no longer be made.
 |=========================================================
 
-+process.createChildProcess(command, args=[], env=process.env)+::
++require("child_process").spawn(command, args=[], env=process.env)+::
 Launches a new process with the given +command+, command line arguments, and
 environmental variables. For example:
 +
 ----------------------------------------
-var ls = process.createChildProcess("ls", ["-lh", "/usr"]);
-ls.addListener("output", function (data) {
-  sys.puts(data);
+// Pipe a child process output to
+// parent process output
+var ls = spawn("ls", ["-lh", "/usr"]);
+ls.stdout.addListener("data", function (data) {
+  process.stdout.write(data);
 });
 ----------------------------------------
-+
-Note, if you just want to buffer the output of a command and return it, then
-+exec()+ in +/sys.js+ might be better.
 
 
 +child.pid+ ::
@@ -476,6 +432,23 @@ Closes the process's +stdin+ stream.
 +child.kill(signal="SIGTERM")+ ::
 Send a signal to the child process.  If no argument is given, the process
 will be sent +"SIGTERM"+. See signal(7) for a list of available signals.
+
+
++require("child_process").exec(command, callback)+::
+High-level way to executes a command as a child process and buffer the
+output and return it in a callback.
++
+----------------------------------------
+var exec = require("child_process").exec;
+exec("ls /", function (err, stdout, stderr) {
+  if (err) throw err;
+  sys.puts(stdout);
+});
+----------------------------------------
++
+The callback gets the arguments +(err, stdout, stderr)+. On success +err+
+will be +null+. On error +err+ will be an instance of +Error+ and +err.code+
+will be the exit code of the child process.
 
 
 
@@ -714,7 +687,7 @@ Asynchronously reads the entire contents of a file. Example:
 --------------------------------
 fs.readFile("/etc/passwd", function (err, data) {
   if (err) throw err;
-  sys.puts(content);
+  sys.puts(data);
 });
 --------------------------------
 +
@@ -782,6 +755,89 @@ Objects returned from +fs.stat()+ and +fs.lstat()+ are of this type.
 +stats.isFIFO()+::
 
 +stats.isSocket()+:: ...
+
+=== +fs.FileReadStream+
+
+[cols="1,2,10",options="header"]
+|=========================================================
+|Event           | Parameters          | Notes
+
+|+"open"+        | +fd+                | The file descriptor was opened.
+|+"data"+        | +chunk+             | A chunk of data was read.
+|+"error"+       | +err+               | An error occured. This stops the stream.
+|+"end"+         |                     | The end of the file was reached.
+|+"close"+       |                     | The file descriptor was closed.
+|=========================================================
+
++fs.createReadStream(path, [options]);+ ::
+Returns a new FileReadStream object.
++
++options+ is an object with the following defaults:
++
+----------------------------------------
+{ "flags": "r"
+, "encoding": "binary"
+, "mode": 0666
+, "bufferSize": 4 * 1024
+}
+----------------------------------------
+
++readStream.readable+ ::
+A boolean that is +true+ by default, but turns +false+ after an +"error"+
+occured, the stream came to an "end", or +forceClose()+ was called.
+
++readStream.pause()+ ::
+Stops the stream from reading further data. No +"data"+ event will be fired
+until the stream is resumed.
+
++readStream.resume()+ ::
+Resumes the stream. Together with +pause()+ this useful to throttle reading.
+
++readStream.forceClose([callback])+ ::
+Allows to close the stream before the +"end"+ is reached. No more events other
+than +"close"+ will be fired after this method has been called.
+
+=== +fs.FileWriteStream+
+
+[cols="1,2,10",options="header"]
+|=========================================================
+|Event           | Parameters          | Notes
+
+|+"open"+        | +fd+                | The file descriptor was opened.
+|+"drain"+       |                     | No more data needs to be written.
+|+"error"+       | +err+               | An error occured. This stops the stream.
+|+"close"+       |                     | The file descriptor was closed.
+|=========================================================
+
++fs.createWriteStream(path, [options]);+ ::
+Returns a new FileWriteStream object.
++
++options+ is an object with the following defaults:
++
+----------------------------------------
+{ "flags": "w"
+, "encoding": "binary"
+, "mode": 0666
+}
+----------------------------------------
+
++writeStream.writeable+ ::
+A boolean that is +true+ by default, but turns +false+ after an +"error"+
+occured or +close()+ / +forceClose()+ was called.
+
++writeStream.write(data, [callback])+ ::
+Returns +true+ if the data was flushed to the kernel, and +false+ if it was
+queued up for being written later. A +"drain"+ will fire after all queued data
+has been written.
++
+You can also specify +callback+ to be notified when the data from this write
+has been flushed. The first param is +err+, the second is +bytesWritten+.
+
++writeStream.close([callback])+ ::
+Closes the stream right after all queued +write()+ calls have finished.
+
++writeStream.forceClose([callback])+ ::
+Allows to close the stream regardless of its current state.
 
 == HTTP
 
@@ -1491,6 +1547,10 @@ Sets the encoding (either +"ascii"+, +"utf8"+, or +"binary"+) for data that is r
 Sends data on the connection. The second parameter specifies the encoding
 in the case of a string--it defaults to ASCII because encoding to UTF8 is
 rather slow.
++
+Returns +true+ if the entire data was flushed successfully to the kernel
+buffer. Returns +false+ if all or part of the data was queued in user memory.
++'drain'+ will be emitted when the buffer is again free.
 
 
 +connection.close()+::

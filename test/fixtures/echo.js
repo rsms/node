@@ -1,12 +1,13 @@
-process.mixin(require("../common"));
-process.stdio.open();
+require("../common");
 
 print("hello world\r\n");
 
-process.stdio.addListener("data", function (data) {
-  print(data);
+var stdin = process.openStdin();
+
+stdin.addListener("data", function (data) {
+  process.stdout.write(data);
 });
 
-process.stdio.addListener("close", function () {
-  process.stdio.close();
+stdin.addListener("end", function () {
+  process.stdout.close();
 });

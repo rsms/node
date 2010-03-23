@@ -689,6 +689,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\profile-generator.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\profile-generator.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\profile-generator-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\platform-win32.cc"
 				>
 			</File>
@@ -893,14 +905,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\src\usage-analyzer.cc"
-				>
-			</File>
-			<File
-				RelativePath="..\..\src\usage-analyzer.h"
-				>
-			</File>
-			<File
 				RelativePath="..\..\src\utils.cc"
 				>
 			</File>
@@ -946,6 +950,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\version.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\virtual-frame-inl.h"
 				>
 			</File>
 			<File

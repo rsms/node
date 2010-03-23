@@ -1,9 +1,6 @@
 path = require("path");
 
-libDir = path.join(path.dirname(__filename), "../lib");
-require.paths.unshift(libDir);
-
-process.mixin(require("sys"));
+var puts = require("sys").puts;
 http = require("http");
 
 fixed = ""

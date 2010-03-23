@@ -7,7 +7,7 @@ from os.path import join, dirname, abspath
 from logging import fatal
 
 cwd = os.getcwd()
-VERSION="0.1.30"
+VERSION="0.1.33"
 APPNAME="node.js"
 
 import js2c
@@ -31,6 +31,12 @@ def set_options(opt):
                 , default=False
                 , help='Build with -lefence for debugging [Default: False]'
                 , dest='efence'
+                )
+  opt.add_option( '--system'
+                , action='store_true'
+                , default=False
+                , help='Build using system libraries and headers (like a debian build) [Default: False]'
+                , dest='system'
                 )
 
 def mkdir_p(dir):
@@ -106,6 +112,7 @@ def configure(conf):
   if not conf.env.CC: conf.fatal('c compiler not found')
 
   conf.env["USE_DEBUG"] = Options.options.debug
+  conf.env["USE_SYSTEM"] = Options.options.system
 
   conf.check(lib='dl', uselib_store='DL')
   if not sys.platform.startswith("sunos"):
@@ -118,8 +125,8 @@ def configure(conf):
   #if Options.options.debug:
   #  conf.check(lib='profiler', uselib_store='PROFILER')
 
-  #if Options.options.efence:
-  #  conf.check(lib='efence', libpath=['/usr/lib', '/usr/local/lib'], uselib_store='EFENCE')
+  if Options.options.efence:
+    conf.check(lib='efence', libpath=['/usr/lib', '/usr/local/lib'], uselib_store='EFENCE')
 
   if not conf.check(lib="execinfo", libpath=['/usr/lib', '/usr/local/lib'], uselib_store="EXECINFO"):
     # Note on Darwin/OS X: This will fail, but will still be used as the
@@ -145,12 +152,19 @@ def configure(conf):
       conf.fatal("Cannot find nsl library")
 
   conf.sub_config('deps/libeio')
-  conf.sub_config('deps/libev')
-
-  if sys.platform.startswith("sunos"):
-    conf_subproject(conf, 'deps/udns', 'LIBS="-lsocket -lnsl" ./configure')
+  if not Options.options.system:
+    conf.sub_config('deps/libev')
+    if sys.platform.startswith("sunos"):
+      conf_subproject(conf, 'deps/udns', 'LIBS="-lsocket -lnsl" ./configure')
+    else:
+      conf_subproject(conf, 'deps/udns', './configure')
   else:
-    conf_subproject(conf, 'deps/udns', './configure')
+    if not conf.check(lib='v8', uselib_store='V8'):
+      conf.fatal("Cannot find V8")
+    if not conf.check(lib='ev', uselib_store='EV'):
+      conf.fatal("Cannot find libev")
+    if not conf.check(lib='udns', uselib_store='UDNS'):
+      conf.fatal("Cannot find udns")
 
   conf.define("HAVE_CONFIG_H", 1)
 
@@ -278,15 +292,22 @@ def build_v8(bld):
   bld.install_files('${PREFIX}/include/node/', 'deps/v8/include/*.h')
 
 def build(bld):
-  bld.add_subdirs('deps/libeio deps/libev')
+  if not bld.env["USE_SYSTEM"]:
+    bld.add_subdirs('deps/libeio deps/libev')
+    build_udns(bld)
+    build_v8(bld)
+  else:
+    bld.add_subdirs('deps/libeio')
 
-  build_udns(bld)
-  build_v8(bld)
+
 
   ### evcom
   evcom = bld.new_task_gen("cc")
   evcom.source = "deps/evcom/evcom.c"
-  evcom.includes = "deps/evcom/ deps/libev/"
+  if not bld.env["USE_SYSTEM"]:
+    evcom.includes = "deps/evcom/ deps/libev/"
+  else:
+    evcom.includes = "deps/evcom/"
   evcom.name = "evcom"
   evcom.target = "evcom"
   evcom.uselib = "GPGERROR GNUTLS"
@@ -316,18 +337,45 @@ def build(bld):
     coupling.clone("debug")
 
   ### src/native.cc
+  def make_macros(loc, content):
+    f = open(loc, 'w')
+    f.write(content)
+    f.close
+
+  macros_loc_debug   = join(
+     bld.srcnode.abspath(bld.env_of_name("debug")),
+     "macros.py"
+  )
+
+  macros_loc_default = join(
+    bld.srcnode.abspath(bld.env_of_name("default")),
+    "macros.py"
+  )
+
+  make_macros(macros_loc_debug, "")  # leave debug(x) as is in debug build
+  # replace debug(x) with nothing in release build
+  make_macros(macros_loc_default, "macro debug(x) = ;\n")
+
   def javascript_in_c(task):
     env = task.env
     source = map(lambda x: x.srcpath(env), task.inputs)
     targets = map(lambda x: x.srcpath(env), task.outputs)
+    source.append(macros_loc_default)
+    js2c.JS2C(source, targets)
+
+  def javascript_in_c_debug(task):
+    env = task.env
+    source = map(lambda x: x.srcpath(env), task.inputs)
+    targets = map(lambda x: x.srcpath(env), task.outputs)
+    source.append(macros_loc_debug)
     js2c.JS2C(source, targets)
 
   native_cc = bld.new_task_gen(
-    source='src/node.js',
+    source='src/node.js ' + bld.path.ant_glob('lib/*.js'),
     target="src/node_natives.h",
-    before="cxx"
+    before="cxx",
+    install_path=None
   )
-  native_cc.install_path = None
 
   # Add the rule /after/ cloning the debug
   # This is a work around for an error had in python 2.4.3 (I'll paste the
@@ -335,7 +383,8 @@ def build(bld):
   # where.)
   if bld.env["USE_DEBUG"]:
     native_cc_debug = native_cc.clone("debug")
-    native_cc_debug.rule = javascript_in_c
+    native_cc_debug.rule = javascript_in_c_debug
+
   native_cc.rule = javascript_in_c
 
   ### node lib
@@ -344,6 +393,10 @@ def build(bld):
   node.target       = "node"
   node.source = """
     src/node.cc
+    src/node_buffer.cc
+    src/node_http_parser.cc
+    src/node_net2.cc
+    src/node_io_watcher.cc
     src/node_child_process.cc
     src/node_constants.cc
     src/node_dns.cc
@@ -351,25 +404,37 @@ def build(bld):
     src/node_file.cc
     src/node_http.cc
     src/node_net.cc
-    src/node_signal_handler.cc
-    src/node_stat.cc
+    src/node_signal_watcher.cc
+    src/node_stat_watcher.cc
     src/node_stdio.cc
     src/node_timer.cc
     src/node_idle_watcher.cc
   """
-  node.includes = """
-    src/ 
-    deps/v8/include
-    deps/libev
-    deps/udns
-    deps/libeio
-    deps/evcom 
-    deps/http_parser
-    deps/coupling
-  """
-  node.add_objects = 'ev eio evcom http_parser coupling'
-  node.uselib_local = ''
-  node.uselib = 'GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
+  if not bld.env["USE_SYSTEM"]:
+    node.includes = """
+      src/ 
+      deps/v8/include
+      deps/libev
+      deps/udns
+      deps/libeio
+      deps/evcom 
+      deps/http_parser
+      deps/coupling
+    """
+    node.add_objects = 'ev eio evcom http_parser coupling'
+    node.uselib_local = ''
+    node.uselib = 'GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
+  else:
+    node.includes = """
+      src/
+      deps/libeio
+      deps/evcom 
+      deps/http_parser
+      deps/coupling
+    """
+    node.add_objects = 'eio evcom http_parser coupling'
+    node.uselib_local = 'eio'
+    node.uselib = 'EV GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
 
   node.install_path = '${PREFIX}/lib'
   node.install_path = '${PREFIX}/bin'
@@ -424,8 +489,6 @@ def build(bld):
   # Why am I using two lines? Because WAF SUCKS.
   bld.install_files('${PREFIX}/lib/node/wafadmin', 'tools/wafadmin/*.py')
   bld.install_files('${PREFIX}/lib/node/wafadmin/Tools', 'tools/wafadmin/Tools/*.py')
-
-  bld.install_files('${PREFIX}/lib/node/libraries/', 'lib/*.js')
 
 def shutdown():
   Options.options.debug
